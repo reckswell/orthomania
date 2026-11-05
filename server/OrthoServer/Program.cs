@@ -11,13 +11,14 @@ namespace OrthoServer
 {
     public static class Program
     {
-        private const string usage = """
+        private static readonly string usage = $"""
                                      maniaortho score server: keeps your maniaortho plays and rates them with osu!'s live mania calculators.
 
                                      Usage:
-                                       OrthoServer [serve] [--data <folder>] [--port <port>] [--no-live-check]
+                                       OrthoServer [serve] [--data <folder>] [--port <port>] [--no-live-check] [--parent-pid <pid>]
                                            Serve the profile page and the upload endpoint on http://127.0.0.1:<port> (default 7727).
-                                           Plays rated by another calculator version are rated again first.
+                                           Plays rated by another calculator version are rated again first. With --parent-pid,
+                                           stop once that process has ended. Data defaults to {ServerOptions.DefaultDataPath}.
                                        OrthoServer recalculate [--data <folder>]
                                            Rate every stored play again.
                                        OrthoServer check-live [--write <calculator-version.txt>]
@@ -45,6 +46,10 @@ namespace OrthoServer
 
                     case "--no-live-check":
                         options.CheckLiveVersion = false;
+                        break;
+
+                    case "--parent-pid" when i + 1 < args.Length:
+                        options.ParentProcessId = int.Parse(args[++i], CultureInfo.InvariantCulture);
                         break;
 
                     case "--write" when i + 1 < args.Length:

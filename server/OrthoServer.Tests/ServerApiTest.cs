@@ -63,6 +63,18 @@ namespace OrthoServer.Tests
         }
 
         [Test]
+        public async Task TestHealth()
+        {
+            var response = await http.GetAsync("/api/health");
+            var health = JObject.Parse(await response.Content.ReadAsStringAsync());
+
+            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+            Assert.That((string?)health["status"], Is.EqualTo("ok"));
+            Assert.That((string?)health["version"], Is.EqualTo(ServerHost.Version).And.Not.Empty);
+            Assert.That((string?)health["calculator_version"], Is.Not.Empty);
+        }
+
+        [Test]
         public async Task TestUploadIsRatedAndCounts()
         {
             byte[] map = TestPlays.Map();

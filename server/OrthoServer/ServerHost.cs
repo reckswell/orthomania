@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using ManiaOrtho.ScoreServerContract;
@@ -28,7 +29,7 @@ namespace OrthoServer
         /// <summary>
         /// Where plays, maps and replays are kept.
         /// </summary>
-        public string DataPath { get; set; } = "server-data";
+        public string DataPath { get; set; } = DefaultDataPath;
 
         /// <summary>
         /// The port on 127.0.0.1 (this computer only). 0 picks a free one.
@@ -40,7 +41,20 @@ namespace OrthoServer
         /// </summary>
         public bool CheckLiveVersion { get; set; } = true;
 
+        /// <summary>
+        /// A process this server stops with, once it has ended (the patcher's dev option passes its own), or null to run until
+        /// stopped.
+        /// </summary>
+        public int? ParentProcessId { get; set; }
+
         public const int DEFAULT_PORT = 7727;
+
+        /// <summary>
+        /// <c>%LOCALAPPDATA%\orthomania\server</c> (<c>~/.local/share/orthomania/server</c> on Linux), the folder the patcher's dev
+        /// option starts the server with.
+        /// </summary>
+        public static string DefaultDataPath =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify), "orthomania", "server");
     }
 
     /// <summary>
@@ -48,6 +62,12 @@ namespace OrthoServer
     /// </summary>
     public static class ServerHost
     {
+        /// <summary>
+        /// This server's version (the repository's <c>Version</c>).
+        /// </summary>
+        public static readonly string Version =
+            typeof(ServerHost).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "0.0.0";
+
         public static WebApplication Create(ServerOptions options)
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
@@ -63,7 +83,13 @@ namespace OrthoServer
 
             var app = builder.Build();
 
-            app.Lifetime.ApplicationStarted.Register(() => live.Start(app.Lifetime.ApplicationStopping));
+            app.Lifetime.ApplicationStarted.Register(() =>
+            {
+                live.Start(app.Lifetime.ApplicationStopping);
+
+                if (options.ParentProcessId is int parent)
+                    ParentProcessWatch.Start(parent, app.Lifetime);
+            });
 
             // Only the game changes anything. A web page's request carries Origin or Sec-Fetch-Site (the game's never do), and a
             // page cannot add the X-ManiaOrtho header the play uploads need without a preflight, which nothing here allows.
@@ -95,6 +121,14 @@ namespace OrthoServer
                 var recent = service.Store.ForUser(owner).OrderByDescending(p => p.Id).Take(50).ToList();
                 return Results.Content(ProfilePage.Render(service.Profile(owner), recent, PlayCalculator.CalculatorVersion, live.NewerVersion), "text/html; charset=utf-8");
             });
+
+            // For whoever starts the server (the patcher's dev option): answers as soon as the server listens, and reads nothing.
+            app.MapGet("/api/health", () => json(new Dictionary<string, object?>
+            {
+                ["status"] = "ok",
+                ["version"] = Version,
+                ["calculator_version"] = PlayCalculator.CalculatorVersion,
+            }));
 
             app.MapGet("/api/status", () => json(new Dictionary<string, object?>
             {
@@ -240,7 +274,7 @@ namespace OrthoServer
                             CheckedAt = DateTimeOffset.Now;
 
                             if (NewerVersion != null)
-                                Console.WriteLine($"osu! now rates scores with {NewerVersion} (score processor {Latest.ReleaseTag}); this server uses {PlayCalculator.CalculatorVersion}. Run scripts/ortho/server-update.");
+                                Console.WriteLine($"osu! now rates scores with {NewerVersion} (score processor {Latest.ReleaseTag}); this server uses {PlayCalculator.CalculatorVersion}. Run server/scripts/server-update.");
                         }
                         catch (Exception e) when (e is not OperationCanceledException)
                         {
