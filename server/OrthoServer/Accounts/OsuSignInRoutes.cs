@@ -4,7 +4,7 @@ using ManiaOrtho.ScoreServerContract;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json;
-using OrthoServer.Lazer;
+using OrthoServer.Scoring;
 using OrthoServer.Web;
 
 namespace OrthoServer.Accounts
@@ -28,8 +28,10 @@ namespace OrthoServer.Accounts
 
         private static readonly JsonSerializerSettings json_settings = new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore };
 
-        public static void Map(WebApplication app, AccountStore accounts, OsuSignIn osu, SignInLinks links)
+        public static void Map(WebApplication app, PlayService service, OsuSignIn osu, SignInLinks links)
         {
+            var accounts = service.Accounts;
+
             app.MapPost("/api/link", (HttpContext context) =>
             {
                 if (osu.Config(out string? problem) is not { } config)
@@ -76,7 +78,7 @@ namespace OrthoServer.Accounts
             });
 
             app.MapDelete("/api/link", (HttpRequest request) =>
-                accounts.RevokeGameToken(LazerApi.Bearer(request)) ? Results.NoContent() : Results.Json(new { error = "This game is not linked." }, statusCode: StatusCodes.Status404NotFound));
+                accounts.RevokeGameToken(BearerToken.Of(request)) ? Results.NoContent() : Results.Json(new { error = "This game is not linked." }, statusCode: StatusCodes.Status404NotFound));
 
             app.MapGet(START_PATH, (HttpContext context, string? link) =>
             {
@@ -123,7 +125,7 @@ namespace OrthoServer.Accounts
                 try
                 {
                     var user = await osu.CompleteAsync(config, back, code, context.RequestAborted).ConfigureAwait(false);
-                    var account = accounts.SignInWithOsu(user);
+                    var account = service.SignInWithOsu(user);
                     links.Complete(userCode, account.Id);
 
                     return Results.Content(Page.Message($"Signed in as {account.Username}", new[]

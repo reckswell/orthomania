@@ -67,44 +67,15 @@ What the server gets and keeps:
 - **A sign-in finishes only in the browser that started it.** Each one has its own state, used once and gone after 10
   minutes, and a cookie ties it to that browser; the game alone holds the code that collects the result. Web pages cannot
   start a link (they cannot send the game's header) or change anything else here.
-- **The same osu! account always signs in to the same account here**, renamed when you rename on osu!. An account made
-  with a password here is never taken over by an osu! account of the same name.
-
-## The game's sign-in panel (osu! fork only)
-
-Builds of the osu! fork (`reckswell/osu`) have **Settings > Online > Server**, which signs lazer itself in to this
-server with an account and password made here. Stock lazer, which the patcher runs, has no such setting; use **Link with
-osu!** there.
-
-1. Start the server (above).
-2. In the game: **Settings > Online > Server > Server address**: `http://127.0.0.1:7727` (or just `127.0.0.1:7727`).
-   Restart the game; the note under the address says when it is connected.
-3. Open the sign-in panel (top right). It says "on the server at http://127.0.0.1:7727". Press **Register** once to
-   make your account (username 3-15 characters, password at least 8; the email is optional and never used), then sign
-   in as you would on osu!. "Stay signed in" works as usual.
-4. Turn on **Settings > maniaortho > Send plays to my score server**. Plays now go under your account.
-
-Your profile (click your name) shows the server's pp, rank, accuracy, grades, best plays with their weights and recent
-plays. Lazer's profile only has the four osu! rulesets, so your maniaortho figures appear under **osu!mania** (4K and 7K
-as osu!mania's variants). Leave the address empty to go back to osu!'s own server; osu!'s addresses (`ppy.sh`) are never
-taken there.
-
-- **Your account is on this server only.** It has nothing to do with your osu! account; use a different password. The
-  password is stored as a PBKDF2 hash, sign-in tokens as hashes (a day for the access token, 90 days to stay signed in).
-- **Plain http only on this computer.** Lazer sends everything over https; it uses plain http only to a server on a
-  loopback address (127.0.0.1, localhost, ::1), so a password never crosses a network unencrypted. A server on another
-  computer is reached over https, whatever the address says.
-- **Use the same address in both settings.** Plays carry your sign-in only to the exact address the game signed in to
-  (`localhost` and `127.0.0.1` count as different). The note under the score server address says whose account plays go
-  to. A play sent with a sign-in the server no longer accepts (expired, signed out) waits in the outbox for the next send.
-- **A sign-in stays with its server.** Switching servers signs you out; a saved osu! sign-in is never sent to your
-  server, nor your server's to osu!.
-- **The first account owns the plays sent before it existed**, and plays sent while no one is signed in. The score page
-  at <http://127.0.0.1:7727/> shows that account.
-- **Not served**: multiplayer, spectating and live updates (lazer's SignalR hubs; it retries them quietly), chat, beatmap
-  listings and downloads, and beatmap leaderboards (lazer shows online leaderboards only for its own four rulesets).
-  osu!mania scores sent by lazer's normal submission are refused ("This server rates maniaortho plays only"); they stay
-  in your local scores.
+- **The same osu! account always signs in to the same account here**, renamed when you rename on osu!. If your new name
+  is still held here by someone who had it on osu! before you, your account gets your osu! id after the name until they
+  sign in again.
+- **No accounts of its own.** There are no usernames or passwords made on the server: every account is an osu! sign-in.
+  A data folder from before this, with accounts made here with a password, is cleaned up when the server starts: those
+  accounts go, with their password hashes, e-mail addresses and tokens, and their plays go to the first osu! account.
+- **The first account owns the plays sent before it existed**, and plays sent from a game that is not linked. The score
+  page at <http://127.0.0.1:7727/> shows that account. A play sent with a link the server no longer knows (unlinked,
+  expired) waits in the game's outbox instead.
 
 ## How plays are rated
 
@@ -158,26 +129,10 @@ game's in-game pp is behind until the game takes the same osu! update.
 | `GET` | `/auth/osu/start?link=` | The browser, opened by the game: on to osu!'s sign-in page. |
 | `GET` | `/auth/osu/callback` | The browser, sent back by osu!: reads the public profile, links the game, says so. |
 
-Every `POST` under `/api` (not `/api/v2`) needs an `X-ManiaOrtho` header (any value); without it the server answers 403.
-Browsers cannot add it without asking first, so a web page you visit cannot post plays to your server. Any request that
-changes something and comes from a web page (it carries `Origin` or `Sec-Fetch-Site`, which the game never sends) is
-refused, on every path. A play sent with the game's token (`Authorization: Bearer`) goes to that account.
-
-What lazer asks for after it signs in (`OrthoServer/Lazer`), in the shapes of lazer's own types (`LazerApiTest`
-deserializes each answer with them):
-
-| Method | Path | What |
-|---|---|---|
-| `POST` | `/oauth/token` | Sign in (`grant_type=password`, username or email) or stay signed in (`refresh_token`). Any client id. |
-| `POST` | `/users` | Register: `user[username]`, `user[user_email]`, `user[password]`; 422 with `form_error.user` on a problem. |
-| `DELETE` | `/api/v2/oauth/tokens/current` | Sign out. |
-| `GET` | `/api/v2/me/{ruleset?}` | You, with statistics (pp, rank, accuracy, grades, level, 4K/7K) for osu!mania. |
-| `GET` | `/api/v2/users/{id or name}/{ruleset?}`, `/api/v2/users?ids[]=` | Profiles. |
-| `GET` | `/api/v2/users/{id}/scores/{best,recent}`, `/api/v2/users/{id}/beatmapsets/most_played` | Best plays with weights, recent plays (`include_fails=1` for fails), most played maps. |
-| `GET` | friends, blocks, favourites, kudosu, recent activity, chat, notifications, seasonal backgrounds | Empty answers, so lazer's screens load. `notifications` points to a websocket that needs the sign-in. |
-| `POST` | `/api/v2/beatmaps/{id}/solo/scores` | Refused (403): osu! scores are not taken. |
-
-Anything else answers 404 `{"error": "This server does not do that."}` and is logged once per path.
+Every request that changes something (`POST`, `DELETE`) needs an `X-ManiaOrtho` header (any value); without it the
+server answers 403. Browsers cannot add it without asking first, so a web page you visit cannot post plays to your
+server or start a link. Any such request that comes from a web page (it carries `Origin` or `Sec-Fetch-Site`, which the
+game never sends) is refused too. A play sent with the game's token (`Authorization: Bearer`) goes to that account.
 
 `OrthoServer recalculate --data <folder>` and `OrthoServer check-live [--write calculator-version.txt]` do the same from
 the command line.
@@ -187,7 +142,7 @@ the command line.
 | Path | What |
 |---|---|
 | `OrthoServer/` | The server (ASP.NET Core minimal API, SQLite). Builds against NuGet `ppy.osu.Game*` at `calculator-version.txt`, not against the game. |
-| `OrthoServer.Tests/` | Profile maths, pp rules, the HTTP API on a real port, signing in with osu! against a stand-in for osu!'s OAuth (`OsuSignInTest`), the fork's sign-in and lazer's API (`LazerApiTest`), recalculation, the live-version check, stopping with `--parent-pid`, parity. |
+| `OrthoServer.Tests/` | Profile maths, pp rules, the HTTP API on a real port, signing in with osu! against a stand-in for osu!'s OAuth and the clean-up of password accounts (`OsuSignInTest`), recalculation, the live-version check, stopping with `--parent-pid`, parity. |
 | `contract/` | What the game and the server agree on: the upload and answer types, their examples, the synthetic maps and `pp-parity.json`. |
 | `scripts/` | Start the server (`server.ps1`, `server.sh`), set up osu! sign-in (`setup-osu-sign-in.*`) and move the server to osu!'s live calculator version (`server-update.*`). |
 

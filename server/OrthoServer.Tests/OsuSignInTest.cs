@@ -21,6 +21,7 @@ using Newtonsoft.Json;
 using NUnit.Framework;
 using OrthoServer.Accounts;
 using OrthoServer.Scoring;
+using OrthoServer.Storage;
 
 namespace OrthoServer.Tests
 {
@@ -49,6 +50,7 @@ namespace OrthoServer.Tests
         private readonly ConcurrentQueue<string> osuRequests = new ConcurrentQueue<string>();
         private readonly ConcurrentQueue<string> revoked = new ConcurrentQueue<string>();
         private string osuUsername = "osu player";
+        private long osuUserId = osu_user_id;
         private bool osuRedirectsTokenRequests;
 
         [SetUp]
@@ -58,6 +60,7 @@ namespace OrthoServer.Tests
             osuRequests.Clear();
             revoked.Clear();
             osuUsername = "osu player";
+            osuUserId = osu_user_id;
             osuRedirectsTokenRequests = false;
 
             osu = fakeOsu();
@@ -130,8 +133,6 @@ namespace OrthoServer.Tests
             Assert.That(account.OsuUserId, Is.EqualTo(osu_user_id));
             Assert.That(account.CountryCode, Is.EqualTo("NZ"));
             Assert.That(account.AvatarUrl, Is.EqualTo("https://a.ppy.sh/12345678"));
-            Assert.That(account.Email, Is.Empty);
-            Assert.That(accounts.Authenticate("osu player", "anything"), Is.Null, "an osu! account has no password here");
 
             // The game's plays now go to that account.
             byte[] map = TestPlays.Map();
@@ -170,20 +171,132 @@ namespace OrthoServer.Tests
             Assert.That(account.OsuUserId, Is.EqualTo(osu_user_id));
         }
 
+        /// <summary>
+        /// Someone else had the name on osu! before and has not signed in here since being renamed: the account keeps the name
+        /// until then, and the newcomer gets their osu! id after it.
+        /// </summary>
         [Test]
-        public async Task TestPasswordAccountIsNotTakenOver()
+        public async Task TestNameStillHeldHereIsNotTaken()
         {
             configureOsu();
-            Assert.That(accounts.Register("osu player", "", "a password here", out _), Is.Not.Null);
 
+            await linkOnce();
+            osuUserId = 87654321;
             await linkOnce();
 
             var all = accounts.All();
             Assert.That(all, Has.Count.EqualTo(2));
-            Assert.That(all[0].OsuUserId, Is.Null);
+            Assert.That(all[0].OsuUserId, Is.EqualTo(osu_user_id));
             Assert.That(all[0].Username, Is.EqualTo("osu player"));
-            Assert.That(all[1].OsuUserId, Is.EqualTo(osu_user_id));
-            Assert.That(all[1].Username, Is.EqualTo($"osu player ({osu_user_id})"));
+            Assert.That(all[1].OsuUserId, Is.EqualTo(87654321));
+            Assert.That(all[1].Username, Is.EqualTo("osu player (87654321)"));
+        }
+
+        /// <summary>
+        /// A linked game's plays are its account's. A game that is not linked sends them to the server's first account, which
+        /// also takes the plays sent before anyone signed in.
+        /// </summary>
+        [Test]
+        public async Task TestPlaysGoToTheLinkedAccount()
+        {
+            configureOsu();
+            var store = app.Services.GetRequiredService<PlayService>().Store;
+
+            byte[] before = TestPlays.Map(notes: 300);
+            Assert.That((await post(TestPlays.Upload(before), before, null)).StatusCode, Is.EqualTo(HttpStatusCode.OK));
+            Assert.That(store.ForUser(null), Has.Count.EqualTo(1));
+
+            await linkOnce();
+            osuUserId = 87654321;
+            osuUsername = "second player";
+            string second = await linkOnce();
+
+            byte[] secondsPlay = TestPlays.Map(notes: 450);
+            Assert.That((await post(TestPlays.Upload(secondsPlay), secondsPlay, second)).StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+            byte[] notLinked = TestPlays.Map(notes: 500);
+            Assert.That((await post(TestPlays.Upload(notLinked), notLinked, null)).StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+            var all = accounts.All();
+            Assert.That(store.ForUser(all[0].Id), Has.Count.EqualTo(2), "the first account: the play from before, and the one from a game not linked");
+            Assert.That(store.ForUser(all[1].Id), Has.Count.EqualTo(1));
+            Assert.That(store.ForUser(null), Is.Empty);
+        }
+
+        /// <summary>
+        /// A link the server does not know (unlinked, expired, or from before its data was reset) is refused rather than filed
+        /// under the first account: the play belongs to whoever played it, and the game sends it again once linked.
+        /// </summary>
+        [Test]
+        public async Task TestUnknownLinkIsNotFiledUnderTheOwner()
+        {
+            configureOsu();
+            await linkOnce();
+
+            foreach (string stale in new[] { AccountStore.GAME_TOKEN_PREFIX + "unknown", "not-a-token" })
+            {
+                byte[] map = TestPlays.Map();
+                var response = await post(TestPlays.Upload(map), map, stale);
+                Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized), await response.Content.ReadAsStringAsync());
+            }
+
+            Assert.That(app.Services.GetRequiredService<PlayService>().Store.All(), Is.Empty);
+        }
+
+        /// <summary>
+        /// A data folder from before osu! sign-in, when accounts were made here with a password: those accounts go with their
+        /// password hashes, e-mail addresses and tokens (none of it is left anywhere in the files), and their plays are the
+        /// first osu! account's.
+        /// </summary>
+        [TestCase(false, TestName = "TestPasswordAccountsFromBeforeAreRemoved(before osu! sign-in)")]
+        [TestCase(true, TestName = "TestPasswordAccountsFromBeforeAreRemoved(with an osu! account too)")]
+        public void TestPasswordAccountsFromBeforeAreRemoved(bool withOsuAccount)
+        {
+            const string password_hash = "pbkdf2-sha256$600000$c2FsdHNhbHRzYWx0$aGFzaC1sZWZ0LWZyb20tYmVmb3Jl";
+            const string email = "player-from-before@example.com";
+            const string token_hash = "ACCESSTOKENHASHLEFTFROMBEFORE";
+
+            string old = Path.Combine(dataPath, "from-before");
+            var store = new PlayStore(old);
+
+            using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(old, "plays.db")}"))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = $"""
+                                       CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                                           email TEXT NOT NULL, password_hash TEXT NOT NULL, joined_at TEXT NOT NULL
+                                           {(withOsuAccount ? ", osu_user_id INTEGER, avatar_url TEXT NOT NULL DEFAULT '', country_code TEXT NOT NULL DEFAULT ''" : "")});
+                                       CREATE TABLE tokens (access_hash TEXT PRIMARY KEY, refresh_hash TEXT NOT NULL UNIQUE, user_id INTEGER NOT NULL,
+                                           access_expires_at TEXT NOT NULL, refresh_expires_at TEXT NOT NULL);
+                                       INSERT INTO users (id, username, email, password_hash, joined_at) VALUES (2, 'Alpha', '{email}', '{password_hash}', '2026-11-01T00:00:00+00:00');
+                                       INSERT INTO tokens VALUES ('{token_hash}', 'REFRESH{token_hash}', 2, '2026-11-02T00:00:00+00:00', '2027-01-30T00:00:00+00:00');
+                                       {(withOsuAccount ? $"INSERT INTO users (id, username, email, password_hash, joined_at, osu_user_id) VALUES (3, 'osu player', '', '', '2026-11-03T00:00:00+00:00', {osu_user_id});" : "")}
+                                       """;
+                command.ExecuteNonQuery();
+            }
+
+            store.Insert(withUser(TestPlays.Rated(1, 1, 100), 2));
+
+            if (withOsuAccount)
+                store.Insert(withUser(TestPlays.Rated(2, 2, 200), 3));
+
+            var service = new PlayService(store, new AccountStore(old));
+            var account = withOsuAccount ? service.Accounts.All().Single() : service.SignInWithOsu(new OsuUser(osu_user_id, "osu player", string.Empty, string.Empty));
+
+            Assert.That(service.Accounts.All().Select(a => a.OsuUserId), Is.EqualTo(new[] { osu_user_id }));
+            Assert.That(store.ForUser(account.Id), Has.Count.EqualTo(withOsuAccount ? 2 : 1));
+            Assert.That(store.ForUser(null), Is.Empty);
+
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            string stored = string.Concat(Directory.GetFiles(old, "*", SearchOption.AllDirectories).Select(f => Encoding.Latin1.GetString(File.ReadAllBytes(f))));
+            Assert.That(stored, Does.Not.Contain(password_hash).And.Not.Contain("aGFzaC1sZWZ0LWZyb20tYmVmb3Jl").And.Not.Contain(email).And.Not.Contain(token_hash));
+
+            static PlayRecord withUser(PlayRecord play, long userId)
+            {
+                play.UserId = userId;
+                return play;
+            }
         }
 
         [Test]
@@ -353,12 +466,18 @@ namespace OrthoServer.Tests
         private Task<HttpResponseMessage> callback(string state, string cookie, string code)
             => browser.SendAsync(withCookie(new HttpRequestMessage(HttpMethod.Get, $"/auth/osu/callback?code={Uri.EscapeDataString(code)}&state={Uri.EscapeDataString(state)}"), cookie));
 
-        private async Task linkOnce()
+        /// <summary>
+        /// Links a game as the stand-in's current osu! user; its token.
+        /// </summary>
+        private async Task<string> linkOnce()
         {
             var link = await startLink();
             var (authorize, cookie) = await openInBrowser(link);
             Assert.That((await callback(HttpUtility.ParseQueryString(authorize.Query)["state"]!, cookie, osu_code)).StatusCode, Is.EqualTo(HttpStatusCode.OK));
-            Assert.That((await poll(link)).Status, Is.EqualTo(LinkStatus.LINKED));
+
+            var linked = await poll(link);
+            Assert.That(linked.Status, Is.EqualTo(LinkStatus.LINKED));
+            return linked.Token!;
         }
 
         private static HttpRequestMessage withCookie(HttpRequestMessage request, string cookie)
@@ -438,7 +557,7 @@ namespace OrthoServer.Tests
 
                 return Results.Json(new Dictionary<string, object?>
                 {
-                    ["id"] = osu_user_id,
+                    ["id"] = osuUserId,
                     ["username"] = osuUsername,
                     ["avatar_url"] = "https://a.ppy.sh/12345678",
                     ["country_code"] = "NZ",

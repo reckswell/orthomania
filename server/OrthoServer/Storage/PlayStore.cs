@@ -210,6 +210,19 @@ namespace OrthoServer.Storage
             }
         }
 
+        /// <summary>
+        /// Makes every play of an account that no longer exists belong to nobody. Plays and accounts share <c>plays.db</c>.
+        /// </summary>
+        public int DisownRemovedAccounts()
+        {
+            using (var connection = open())
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "UPDATE plays SET user_id = NULL WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)";
+                return command.ExecuteNonQuery();
+            }
+        }
+
         private static bool hasColumn(SqliteConnection connection, string table, string column)
         {
             using (var command = connection.CreateCommand())

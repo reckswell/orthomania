@@ -16,7 +16,6 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using OrthoServer.Accounts;
-using OrthoServer.Lazer;
 using OrthoServer.Live;
 using OrthoServer.Scoring;
 using OrthoServer.Storage;
@@ -102,15 +101,14 @@ namespace OrthoServer
             });
 
             // Only the game changes anything. A web page's request carries Origin or Sec-Fetch-Site (the game's never do), and a
-            // page cannot add the X-ManiaOrtho header the play uploads need without a preflight, which nothing here allows.
+            // page cannot add the X-ManiaOrtho header the game's requests carry without a preflight, which nothing here allows.
             app.Use(async (context, next) =>
             {
                 var request = context.Request;
                 bool changes = !HttpMethods.IsGet(request.Method) && !HttpMethods.IsHead(request.Method);
                 bool fromPage = request.Headers.ContainsKey("Origin") || request.Headers.ContainsKey("Sec-Fetch-Site");
-                bool upload = request.Path.StartsWithSegments("/api") && !request.Path.StartsWithSegments("/api/v2");
 
-                if (changes && (fromPage || (upload && !request.Headers.ContainsKey(ScoreServerProtocol.CLIENT_HEADER))))
+                if (changes && (fromPage || !request.Headers.ContainsKey(ScoreServerProtocol.CLIENT_HEADER)))
                 {
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
                     await context.Response.WriteAsJsonAsync(new { error = fromPage
@@ -122,8 +120,6 @@ namespace OrthoServer
 
                 await next().ConfigureAwait(false);
             });
-
-            app.UseWebSockets();
 
             app.MapGet("/", () =>
             {
@@ -183,13 +179,14 @@ namespace OrthoServer
 
             app.MapPost("/api/plays", async (HttpRequest request) =>
             {
-                var signedIn = LazerApi.SignedIn(request, service.Accounts);
+                string? token = BearerToken.Of(request);
+                var signedIn = service.Accounts.FindByGameToken(token);
 
-                // A sign-in this server does not know (expired, or from before its data was reset) must not file the play under
-                // another account: the game keeps it and sends it again with a fresh sign-in.
-                if (signedIn == null && LazerApi.CarriesSignIn(request))
+                // A link this server does not know (unlinked, unused for too long, or from before its data was reset) must not file
+                // the play under another account: the game keeps it and sends it again once it is linked again.
+                if (signedIn == null && token != null)
                 {
-                    return Results.Json(new { error = "The game's sign-in is not valid on this server (expired or signed out); the play is sent again later." },
+                    return Results.Json(new { error = "The game's link is not valid on this server (unlinked or expired); the play is sent again later." },
                         statusCode: StatusCodes.Status401Unauthorized);
                 }
 
@@ -226,8 +223,7 @@ namespace OrthoServer
                 return json(new Dictionary<string, object?> { ["rated"] = rated, ["failed"] = failed, ["calculator_version"] = PlayCalculator.CalculatorVersion });
             });
 
-            OsuSignInRoutes.Map(app, service.Accounts, osu, links);
-            LazerApi.Map(app, service);
+            OsuSignInRoutes.Map(app, service, osu, links);
 
             return app;
         }

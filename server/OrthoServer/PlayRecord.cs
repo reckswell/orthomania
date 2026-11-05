@@ -14,7 +14,7 @@ namespace OrthoServer
         public string? ClientScoreId { get; set; }
 
         /// <summary>
-        /// The account the play belongs to: the one signed in to the game when it was sent, else the server's first account
+        /// The account the play belongs to: the one the game was linked to when it was sent, else the server's first account
         /// (<see cref="Accounts.AccountStore.Owner"/>). Null for plays sent before any account existed; the first account takes those.
         /// </summary>
         public long? UserId { get; set; }

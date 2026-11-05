@@ -23,18 +23,25 @@ namespace OrthoServer.Scoring
         {
             Store = store;
             Accounts = accounts;
+
+            // Plays of accounts that are gone (made with a password here, before osu! sign-in) are the first account's now.
+            Store.DisownRemovedAccounts();
+
+            if (Accounts.Owner() is Account owner)
+                Store.AdoptUnowned(owner.Id);
         }
 
         /// <summary>
-        /// Makes an account. The first one made also takes every play sent before it (they were its player's).
+        /// The account an osu! sign-in belongs to (<see cref="AccountStore.SignInWithOsu"/>). The first one made also takes every
+        /// play sent before it (they were its player's).
         /// </summary>
-        public Account? Register(string? username, string? email, string? password, out Dictionary<string, List<string>> errors)
+        public Account SignInWithOsu(OsuUser user)
         {
             lock (gate)
             {
-                var account = Accounts.Register(username, email, password, out errors);
+                var account = Accounts.SignInWithOsu(user);
 
-                if (account != null && Accounts.Owner()?.Id == account.Id)
+                if (Accounts.Owner()?.Id == account.Id)
                     Store.AdoptUnowned(account.Id);
 
                 return account;
@@ -49,7 +56,7 @@ namespace OrthoServer.Scoring
         /// <param name="upload">The play.</param>
         /// <param name="osuFile">Its map's file.</param>
         /// <param name="replay">Its replay, if any.</param>
-        /// <param name="signedIn">The account the game is signed in to on this server; plays sent without one are the first account's.</param>
+        /// <param name="signedIn">The account the game is linked to; plays sent from a game that is not linked are the first account's.</param>
         public PlayResult Submit(PlayUpload upload, byte[] osuFile, byte[]? replay, Account? signedIn = null)
         {
             if (!string.Equals(upload.Client, "maniaortho", StringComparison.Ordinal))
