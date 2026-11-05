@@ -127,6 +127,21 @@ namespace Orthomania.Patcher.Lazer
         }
 
         /// <summary>
+        /// The installed release as text, or "unknown" when it cannot be read.
+        /// </summary>
+        public string ReadReleaseSafely()
+        {
+            try
+            {
+                return ReadReleaseFrom(Current)?.Version.Number ?? "(unknown release)";
+            }
+            catch (Exception e) when (e is IOException or System.Xml.XmlException or UnauthorizedAccessException)
+            {
+                return "(unknown release)";
+            }
+        }
+
+        /// <summary>
         /// Whether <paramref name="path"/> is this install's game or anything else inside its folder.
         /// </summary>
         public bool Contains(string path) => PathUtils.IsInside(path, Root);
