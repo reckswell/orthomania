@@ -42,13 +42,10 @@ namespace Orthomania.Patcher.Tests.Flow
             layout = new PatcherLayout(temp.Combine("orthomania"));
             dataFolder = temp.Combine("ortho-data");
 
-            Directory.CreateDirectory(temp.Combine("osu!", "Screenshots"));
-
             writeSettings(new PatcherSettings
             {
                 LazerFolder = install.Root,
                 DataFolder = dataFolder,
-                StableFolder = temp.Combine("osu!"),
             });
 
             updater = new FakeLazerUpdater();
@@ -103,15 +100,20 @@ namespace Orthomania.Patcher.Tests.Flow
             Assert.That(exitCode, Is.Zero);
             Assert.That(runner.Ran.Single().Directory, Is.EqualTo(flow.Target.Directory));
             Assert.That(flow.State.LastWorking, Is.EqualTo(new PairRecord("2026.1026.0", "0.1.0")));
-            Assert.That(flow.State.DataOpenedBy, Is.EqualTo("2026.1026.0"));
-            Assert.That(File.Exists(Path.Combine(dataFolder, Orthomania.Patcher.Data.DataFolder.NOTE)), Is.True);
+            Assert.That(Directory.GetFileSystemEntries(dataFolder), Is.EqualTo(new[] { Path.Combine(dataFolder, Orthomania.Patcher.Data.DataFolder.NOTE) }),
+                "orthomania's data folder starts with only the note");
+
+            Assert.That(File.Exists(Path.Combine(flow.Target.Directory, VersionFolders.FRAMEWORK_INI)), Is.False, "osu! keeps its data where plain osu! does");
+            var game = GameSettings.Parse(File.ReadAllText(Path.Combine(flow.Target.Directory, GameSettings.FILE_NAME)))!;
+            Assert.That(game.DataFolder, Is.EqualTo(dataFolder));
+            Assert.That(game.OsuSignIn, Is.False, "signed out of osu! unless turned on");
 
             var saved = JsonFile.ReadOrDefault<PatcherState>(layout.StateFile, out _);
             Assert.That(saved.LastWorking, Is.EqualTo(new PairRecord("2026.1026.0", "0.1.0")));
         }
 
         [Test]
-        public async Task TestLeavesLazerInstallAndPlainDataAlone()
+        public async Task TestLeavesLazerInstallAlone()
         {
             feed.Publish(october, "0.1.0");
             var before = snapshot(install.Root);
@@ -122,7 +124,64 @@ namespace Orthomania.Patcher.Tests.Flow
             flow.RemoveOrthomania();
 
             Assert.That(snapshot(install.Root), Is.EqualTo(before));
-            Assert.That(Directory.Exists(temp.Combine("appdata")), Is.False);
+            Assert.That(Directory.Exists(temp.Combine("appdata")), Is.False, "nothing made where osu! keeps its data");
+        }
+
+        [Test]
+        public async Task TestNeverOpensOsuData()
+        {
+            string osu = temp.Combine("appdata", "osu");
+            Directory.CreateDirectory(osu);
+            File.WriteAllText(Path.Combine(osu, "game.ini"), "Token = secret-osu-token\r\n");
+            File.WriteAllText(Path.Combine(osu, "client.realm"), "scores");
+            File.WriteAllText(Path.Combine(osu, "storage.ini"), $"FullPath = {temp.Combine("moved")}\r\n");
+
+            feed.Publish(october, "0.1.0");
+            var before = snapshot(osu);
+
+            // Held shut: any read of osu!'s files by the patcher would throw.
+            var held = Directory.GetFiles(osu).Select(f => File.Open(f, FileMode.Open, FileAccess.ReadWrite, FileShare.None)).ToList();
+
+            try
+            {
+                var flow = await checkAsync();
+                Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Ready), flow.Status.Detail);
+
+                await flow.LaunchAsync(CancellationToken.None);
+                await flow.RepairAsync(CancellationToken.None);
+            }
+            finally
+            {
+                held.ForEach(h => h.Dispose());
+            }
+
+            Assert.That(snapshot(osu), Is.EqualTo(before));
+            Assert.That(Directory.Exists(temp.Combine("moved")), Is.False);
+
+            foreach (string written in Directory.GetFiles(layout.Root, "*", SearchOption.AllDirectories).Concat(Directory.GetFiles(dataFolder)))
+                Assert.That(File.ReadAllText(written), Does.Not.Contain("secret-osu-token"), written);
+        }
+
+        [Test]
+        public async Task TestOsuSignInIsOnlyAllowedWhenTurnedOn()
+        {
+            feed.Publish(october, "0.1.0");
+
+            var flow = await checkAsync();
+            string file = Path.Combine(flow.Target!.Directory, GameSettings.FILE_NAME);
+            Assert.That(GameSettings.Parse(File.ReadAllText(file))!.OsuSignIn, Is.False);
+
+            writeSettings(new PatcherSettings { LazerFolder = install.Root, DataFolder = dataFolder, OsuSignIn = true });
+            flow = await checkAsync();
+
+            Assert.That(flow.Target!.Record.OsuSignIn, Is.True);
+            Assert.That(GameSettings.Parse(File.ReadAllText(file))!.OsuSignIn, Is.True);
+            Assert.That(VersionFolders.Verify(flow.Target, out string? problem), Is.True, problem);
+
+            writeSettings(new PatcherSettings { LazerFolder = install.Root, DataFolder = dataFolder });
+            flow = await checkAsync();
+
+            Assert.That(GameSettings.Parse(File.ReadAllText(file))!.OsuSignIn, Is.False);
         }
 
         [Test]
@@ -149,7 +208,7 @@ namespace Orthomania.Patcher.Tests.Flow
         }
 
         [Test]
-        public async Task TestFallsBackWhenNoBuildForTheNewLazerYet()
+        public async Task TestWaitsForTheBuildForTheNewLazer()
         {
             feed.Publish(october, "0.1.0");
 
@@ -160,14 +219,9 @@ namespace Orthomania.Patcher.Tests.Flow
             flow = await checkAsync();
 
             Assert.That(install.ReadRelease().Version, Is.EqualTo(november), "plain lazer is updated anyway");
-            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Fallback));
-            Assert.That(flow.Status.Title, Is.EqualTo("Almost"));
-            Assert.That(flow.Status.Detail, Is.EqualTo("orthomania for osu! 2026.1105.0 is not out yet."));
-            Assert.That(flow.Target!.Lazer, Is.EqualTo(october));
-            Assert.That(File.ReadAllText(flow.Target.GameExecutable), Is.EqualTo("game 2026.1026.0"), "october's files outlive lazer's update");
-
-            await flow.LaunchAsync(CancellationToken.None);
-            Assert.That(runner.Ran.Last().Lazer, Is.EqualTo(october));
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Problem), "october may not open osu!'s data after november has");
+            Assert.That(flow.Status.Detail, Is.EqualTo("orthomania for osu! 2026.1105.0 is not out yet. Plain osu! works as usual; try again later."));
+            Assert.That(flow.Target, Is.Null);
 
             // The build for november comes out.
             feed.Publish(november, "0.2.0");
@@ -175,36 +229,6 @@ namespace Orthomania.Patcher.Tests.Flow
 
             Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Ready));
             Assert.That(flow.Target!.Lazer, Is.EqualTo(november));
-        }
-
-        [Test]
-        public async Task TestNoFallbackToAReleaseOlderThanTheData()
-        {
-            feed.Publish(october, "0.1.0");
-            feed.Publish(november, "0.2.0");
-
-            var flow = await checkAsync();
-            await flow.LaunchAsync(CancellationToken.None);
-
-            updater.Available = november;
-            flow = await checkAsync();
-            await flow.LaunchAsync(CancellationToken.None);
-
-            // November's build is withdrawn and lazer moves on again: october cannot open data november has opened.
-            feed.Withdraw(november);
-            Directory.Delete(layout.Builds, recursive: true);
-            updater.Available = LazerVersion.Parse("2026.1200.0");
-
-            flow = await checkAsync();
-
-            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Fallback));
-            Assert.That(flow.Target!.Lazer, Is.EqualTo(november), "november's folder is whole and may open the data");
-
-            Directory.Delete(flow.Target.Directory, recursive: true);
-            flow = await checkAsync();
-
-            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Problem), "october may not open november's data");
-            Assert.That(flow.Target, Is.Null);
         }
 
         [Test]
@@ -285,44 +309,24 @@ namespace Orthomania.Patcher.Tests.Flow
             var flow = await checkAsync();
 
             Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Problem));
-            Assert.That(flow.Status.Detail, Does.Contain("plain osu!'s data"));
+            Assert.That(flow.Status.Detail, Does.Contain("is osu!'s own data"));
             Assert.That(Directory.Exists(layout.LazerFolders), Is.False, "nothing made");
         }
 
         [Test]
-        public async Task TestBacksUpTheDatabaseBeforeANewLazerFirstOpensIt()
+        public async Task TestRefusesADataFolderHoldingACopyOfOsuData()
         {
-            feed.Publish(october, "0.1.0");
-            feed.Publish(november, "0.2.0");
-
-            var flow = await checkAsync();
-            await flow.LaunchAsync(CancellationToken.None);
-            File.WriteAllText(Path.Combine(dataFolder, Orthomania.Patcher.Data.DataFolder.DATABASE), "october's scores");
-
-            flow = await checkAsync();
-            await flow.LaunchAsync(CancellationToken.None);
-            Assert.That(Directory.Exists(layout.Backups) ? Directory.GetFiles(layout.Backups) : Array.Empty<string>(), Is.Empty, "same release, no backup");
-
-            updater.Available = november;
-            flow = await checkAsync();
-            await flow.LaunchAsync(CancellationToken.None);
-
-            string backup = Directory.GetFiles(layout.Backups).Single();
-            Assert.That(Path.GetFileName(backup), Does.StartWith("client-before-2026.1105.0-"));
-            Assert.That(File.ReadAllText(backup), Is.EqualTo("october's scores"));
-        }
-
-        [Test]
-        public async Task TestAdoptsTheOldLaunchersDatabase()
-        {
+            // An earlier orthomania kept a whole copy of osu!'s data in its folder.
             feed.Publish(october, "0.1.0");
             Directory.CreateDirectory(dataFolder);
             File.WriteAllText(Path.Combine(dataFolder, "client_52.realm"), "the debug build's");
 
             var flow = await checkAsync();
-            await flow.LaunchAsync(CancellationToken.None);
 
-            Assert.That(File.ReadAllText(Path.Combine(dataFolder, Orthomania.Patcher.Data.DataFolder.DATABASE)), Is.EqualTo("the debug build's"));
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Problem));
+            Assert.That(flow.Status.Detail, Does.Contain("holds osu!'s own data (client_52.realm)"));
+            Assert.That(Directory.Exists(layout.LazerFolders), Is.False, "nothing made");
+            Assert.That(File.ReadAllText(Path.Combine(dataFolder, "client_52.realm")), Is.EqualTo("the debug build's"), "left as it was");
         }
 
         [Test]
@@ -367,7 +371,7 @@ namespace Orthomania.Patcher.Tests.Flow
         }
 
         [Test]
-        public async Task TestKeepsTheLastWorkingPairAndOneMore()
+        public async Task TestKeepsOnlyTheInstalledRelease()
         {
             var releases = new[] { "2026.905.0", "2026.1026.0", "2026.1105.0", "2026.1200.0" }.Select(LazerVersion.Parse).ToArray();
 
@@ -386,24 +390,9 @@ namespace Orthomania.Patcher.Tests.Flow
 
             await checkAsync();
 
-            Assert.That(new VersionFolders(layout.LazerFolders).All().Select(f => f.Record.Lazer), Is.EqualTo(new[] { "2026.1200.0", "2026.1105.0" }));
-            Assert.That(Directory.GetDirectories(layout.Builds).Select(Path.GetFileName), Is.EquivalentTo(new[] { "2026.1200.0", "2026.1105.0" }));
-        }
-
-        [Test]
-        public async Task TestMovesScreenshotsAfterTheGame()
-        {
-            feed.Publish(october, "0.1.0");
-            runner.OnRun = _ =>
-            {
-                Directory.CreateDirectory(Path.Combine(dataFolder, "screenshots"));
-                File.WriteAllText(Path.Combine(dataFolder, "screenshots", "osu_2026-11-05.png"), "shot");
-            };
-
-            var flow = await checkAsync();
-            await flow.LaunchAsync(CancellationToken.None);
-
-            Assert.That(File.Exists(temp.Combine("osu!", "Screenshots", "osu_2026-11-05.png")), Is.True);
+            Assert.That(new VersionFolders(layout.LazerFolders).All().Select(f => f.Record.Lazer), Is.EqualTo(new[] { "2026.1200.0" }));
+            Assert.That(Directory.GetDirectories(layout.LazerFolders), Has.Length.EqualTo(1));
+            Assert.That(Directory.GetDirectories(layout.Builds).Select(Path.GetFileName), Is.EquivalentTo(new[] { "2026.1200.0" }));
         }
 
         [Test]
@@ -424,13 +413,14 @@ namespace Orthomania.Patcher.Tests.Flow
             feed.Publish(october, "0.1.0");
             var flow = await checkAsync();
             await flow.LaunchAsync(CancellationToken.None);
-            File.WriteAllText(Path.Combine(dataFolder, Orthomania.Patcher.Data.DataFolder.DATABASE), "scores");
+            Directory.CreateDirectory(Path.Combine(dataFolder, "maniaortho"));
+            File.WriteAllText(Path.Combine(dataFolder, "maniaortho", "plays.csv"), "plays");
 
             flow.RemoveOrthomania();
 
             Assert.That(Directory.Exists(layout.LazerFolders), Is.False);
             Assert.That(Directory.Exists(layout.Builds), Is.False);
-            Assert.That(File.ReadAllText(Path.Combine(dataFolder, Orthomania.Patcher.Data.DataFolder.DATABASE)), Is.EqualTo("scores"));
+            Assert.That(File.ReadAllText(Path.Combine(dataFolder, "maniaortho", "plays.csv")), Is.EqualTo("plays"));
             Assert.That(File.Exists(install.GameExecutable), Is.True);
         }
 

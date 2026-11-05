@@ -16,7 +16,13 @@ namespace Orthomania.Patcher.Releases
     {
         public const string FILE_NAME = "orthomania.json";
 
-        public const int CURRENT_FORMAT = 1;
+        /// <summary>
+        /// 2: the build runs on osu!'s own data, shared with plain lazer. It keeps everything of its own in the data folder
+        /// <see cref="Folders.GameSettings.FILE_NAME"/> names, never in osu!'s data folder, and keeps osu! signed out unless that file
+        /// allows the osu! sign-in, without using or changing the sign-in osu! saved. Format 1 builds were made for a separate copy of
+        /// osu!'s data, so this patcher does not start them.
+        /// </summary>
+        public const int CURRENT_FORMAT = 2;
 
         private static readonly JsonSerializerOptions json_options = new JsonSerializerOptions
         {
@@ -71,6 +77,12 @@ namespace Orthomania.Patcher.Releases
         /// </summary>
         public void Validate()
         {
+            if (Format < CURRENT_FORMAT)
+            {
+                throw new InvalidDataException($"This orthomania build (format {Format}) was made for its own copy of osu!'s data; this patcher only starts "
+                                               + $"format {CURRENT_FORMAT} builds, which share osu!'s data and leave osu! signed out.");
+            }
+
             if (Format != CURRENT_FORMAT)
                 throw new InvalidDataException($"Unknown orthomania manifest format {Format}; this patcher reads format {CURRENT_FORMAT}. Update the patcher.");
 

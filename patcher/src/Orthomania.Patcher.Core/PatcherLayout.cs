@@ -11,7 +11,6 @@ namespace Orthomania.Patcher
     /// builds\&lt;lazer&gt;\&lt;build&gt;\   orthomania builds, each with its orthomania.json   (BuildStore)
     /// lazer\&lt;lazer&gt;\            what lazer runs from: links to its files, plus orthomania  (VersionFolders)
     /// downloads\                  unfinished downloads
-    /// backups\                    copies of the game's database, taken before a new lazer first opens it
     /// logs\                       the patcher's logs
     /// server\                     the score server's data, when the patcher starts it (development only)
     /// settings.json               what the person chose
@@ -39,8 +38,6 @@ namespace Orthomania.Patcher
 
         public string Downloads => Path.Combine(Root, "downloads");
 
-        public string Backups => Path.Combine(Root, "backups");
-
         public string Logs => Path.Combine(Root, "logs");
 
         public string ServerData => Path.Combine(Root, "server");
@@ -59,7 +56,6 @@ namespace Orthomania.Patcher
             Directory.CreateDirectory(Builds);
             Directory.CreateDirectory(LazerFolders);
             Directory.CreateDirectory(Downloads);
-            Directory.CreateDirectory(Backups);
             Directory.CreateDirectory(Logs);
         }
     }

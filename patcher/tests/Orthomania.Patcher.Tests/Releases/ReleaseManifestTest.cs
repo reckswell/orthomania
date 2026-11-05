@@ -9,7 +9,7 @@ namespace Orthomania.Patcher.Tests.Releases
     {
         private const string sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-        private static string manifest(string files, string lazer = "2026.1026.0", int format = 1)
+        private static string manifest(string files, string lazer = "2026.1026.0", int format = 2)
             => $"{{\"format\":{format},\"lazer\":\"{lazer}\",\"build\":\"0.1.0\",\"files\":[{files}]}}";
 
         private static string file(string name, string hash = sha, long size = 10) => $"{{\"name\":\"{name}\",\"sha256\":\"{hash}\",\"size\":{size}}}";
@@ -48,7 +48,10 @@ namespace Orthomania.Patcher.Tests.Releases
         [Test]
         public void TestRefusesBadManifests()
         {
-            Assert.That(() => ReleaseManifest.Parse(manifest(file("osu.Game.Rulesets.ManiaOrtho.dll"), format: 2)), Throws.TypeOf<InvalidDataException>(), "unknown format");
+            Assert.That(() => ReleaseManifest.Parse(manifest(file("osu.Game.Rulesets.ManiaOrtho.dll"), format: 3)),
+                Throws.TypeOf<InvalidDataException>().With.Message.Contains("Update the patcher"), "unknown format");
+            Assert.That(() => ReleaseManifest.Parse(manifest(file("osu.Game.Rulesets.ManiaOrtho.dll"), format: 1)),
+                Throws.TypeOf<InvalidDataException>().With.Message.Contains("its own copy of osu!'s data"), "a build for a separate copy of osu!'s data");
             Assert.That(() => ReleaseManifest.Parse(manifest(file("osu.Game.Rulesets.ManiaOrtho.dll"), lazer: "latest")), Throws.TypeOf<InvalidDataException>(), "no release");
             Assert.That(() => ReleaseManifest.Parse(manifest("")), Throws.TypeOf<InvalidDataException>(), "no files");
             Assert.That(() => ReleaseManifest.Parse(manifest(file("0Harmony.dll"))), Throws.TypeOf<InvalidDataException>(), "no ruleset");
