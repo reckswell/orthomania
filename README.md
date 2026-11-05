@@ -55,6 +55,14 @@ Each build is a GitHub release tagged `lazer-<lazer release>-<build>` (for examp
 
 A build is only ever put beside the lazer release it names, and it can add files to lazer's but never replace one. Format 2 promises what [What orthomania may touch](#what-orthomania-may-touch) asks of the game side. The patcher itself is released as `patcher-<version>`.
 
+## Launching from a clone
+
+Double-click `launch.bat` at the top of the clone. It builds the patcher and the score server from this clone into
+`artifacts\launch` (the first time takes a minute or two, later ones only rebuild what changed) and opens `orthomania.exe`,
+which then does everything above. The score server is built beside it, so the patcher's dev option can start it (see
+[below](#starting-the-score-server-with-the-game-development-only)). It needs the .NET 10 SDK, and says so if it is missing.
+If orthomania is already open, it leaves it open.
+
 ## Building
 
 Needs the .NET 10 SDK. The patcher and the score server are built and tested apart, each from its own folder:
