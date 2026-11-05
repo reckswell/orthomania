@@ -47,6 +47,11 @@ namespace OrthoServer
         /// </summary>
         public int? ParentProcessId { get; set; }
 
+        /// <summary>
+        /// osu!, for signing in with it. Only tests point it elsewhere (a stand-in on this computer).
+        /// </summary>
+        internal Uri OsuSite { get; set; } = OsuSignIn.OSU;
+
         public const int DEFAULT_PORT = 7727;
 
         /// <summary>
@@ -77,11 +82,16 @@ namespace OrthoServer
 
             var service = new PlayService(new PlayStore(options.DataPath), new AccountStore(options.DataPath));
             var live = new LiveCheck(options.CheckLiveVersion);
+            var osu = new OsuSignIn(options.DataPath, options.OsuSite);
+            var links = new SignInLinks();
 
             builder.Services.AddSingleton(service);
             builder.Services.AddSingleton(live);
+            builder.Services.AddSingleton(links);
 
             var app = builder.Build();
+
+            app.Lifetime.ApplicationStopped.Register(osu.Dispose);
 
             app.Lifetime.ApplicationStarted.Register(() =>
             {
@@ -117,9 +127,10 @@ namespace OrthoServer
 
             app.MapGet("/", () =>
             {
-                long? owner = service.Accounts.Owner()?.Id;
-                var recent = service.Store.ForUser(owner).OrderByDescending(p => p.Id).Take(50).ToList();
-                return Results.Content(ProfilePage.Render(service.Profile(owner), recent, PlayCalculator.CalculatorVersion, live.NewerVersion), "text/html; charset=utf-8");
+                var owner = service.Accounts.Owner();
+                var recent = service.Store.ForUser(owner?.Id).OrderByDescending(p => p.Id).Take(50).ToList();
+                string page = ProfilePage.Render(service.Profile(owner?.Id), recent, PlayCalculator.CalculatorVersion, live.NewerVersion, owner?.Username, osu.IsSetUp);
+                return Results.Content(page, "text/html; charset=utf-8");
             });
 
             // For whoever starts the server (the patcher's dev option): answers as soon as the server listens, and reads nothing.
@@ -137,6 +148,7 @@ namespace OrthoServer
                 ["live_release_tag"] = live.Latest?.ReleaseTag,
                 ["live_checked_at"] = live.CheckedAt,
                 ["plays"] = service.Store.All().Count,
+                ["osu_sign_in"] = osu.IsSetUp,
             }));
 
             app.MapGet("/api/profile", () =>
@@ -214,6 +226,7 @@ namespace OrthoServer
                 return json(new Dictionary<string, object?> { ["rated"] = rated, ["failed"] = failed, ["calculator_version"] = PlayCalculator.CalculatorVersion });
             });
 
+            OsuSignInRoutes.Map(app, service.Accounts, osu, links);
             LazerApi.Map(app, service);
 
             return app;

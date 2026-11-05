@@ -78,7 +78,7 @@ namespace OrthoServer.Lazer
 
             api.MapDelete("/oauth/tokens/current", (HttpContext context) =>
             {
-                accounts.Revoke(bearer(context.Request));
+                accounts.Revoke(Bearer(context.Request));
                 return Results.NoContent();
             });
 
@@ -194,7 +194,7 @@ namespace OrthoServer.Lazer
             // does not keep reconnecting.
             app.Map("/notifications", async (HttpContext context) =>
             {
-                if (!context.WebSockets.IsWebSocketRequest || accounts.FindByAccessToken(bearer(context.Request)) == null)
+                if (!context.WebSockets.IsWebSocketRequest || accounts.FindByAccessToken(Bearer(context.Request)) == null)
                 {
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     return;
@@ -218,16 +218,19 @@ namespace OrthoServer.Lazer
         }
 
         /// <summary>
-        /// The account a request's bearer token signs in to.
+        /// The account a request's bearer token signs in to (a linked game's token, or a sign-in made here).
         /// </summary>
-        public static Account? SignedIn(HttpRequest request, AccountStore accounts) => accounts.FindByAccessToken(bearer(request));
+        public static Account? SignedIn(HttpRequest request, AccountStore accounts) => accounts.FindBySignIn(Bearer(request));
 
         /// <summary>
         /// Whether a request carries a sign-in at all (valid or not).
         /// </summary>
-        public static bool CarriesSignIn(HttpRequest request) => bearer(request) != null;
+        public static bool CarriesSignIn(HttpRequest request) => Bearer(request) != null;
 
-        private static string? bearer(HttpRequest request)
+        /// <summary>
+        /// The bearer token a request carries, if any.
+        /// </summary>
+        public static string? Bearer(HttpRequest request)
         {
             string? header = request.Headers.Authorization;
             return header != null && header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? header["Bearer ".Length..].Trim() : null;

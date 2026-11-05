@@ -1,0 +1,7 @@
+{
+  "device_code": "Zm9yIHRoZSBnYW1lIG9ubHksIG5ldmVyIHNob3du",
+  "user_code": "BKMT-QZRW",
+  "url": "http://127.0.0.1:7727/auth/osu/start?link=BKMT-QZRW",
+  "expires_in": 600,
+  "interval": 2
+}

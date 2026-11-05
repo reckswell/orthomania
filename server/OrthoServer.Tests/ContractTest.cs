@@ -17,6 +17,8 @@ namespace OrthoServer.Tests
 
         [TestCase("play-upload.example.json", typeof(PlayUpload))]
         [TestCase("play-result.example.json", typeof(PlayResult))]
+        [TestCase("link-start.example.json", typeof(LinkStart))]
+        [TestCase("link-status.example.json", typeof(LinkStatus))]
         public void TestExampleMatchesType(string file, System.Type type)
         {
             string json = File.ReadAllText(TestPlays.ContractPath(file));

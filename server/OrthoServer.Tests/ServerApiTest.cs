@@ -145,7 +145,7 @@ namespace OrthoServer.Tests
 
             Assert.That(page, Does.Contain("maniaortho scores"));
             Assert.That(page, Does.Contain("Synthetic 4K"));
-            Assert.That(page, Does.Contain("Not connected to osu!"));
+            Assert.That(page, Does.Contain("Not part of osu!"));
         }
 
         [Test]

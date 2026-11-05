@@ -12,48 +12,23 @@ namespace OrthoServer.Web
     /// </summary>
     public static class ProfilePage
     {
-        public static string Render(Profile profile, IReadOnlyList<PlayRecord> recent, string calculatorVersion, string? liveCalculatorVersion)
+        public static string Render(Profile profile, IReadOnlyList<PlayRecord> recent, string calculatorVersion, string? liveCalculatorVersion, string? owner = null,
+                                    bool osuSignIn = true)
         {
             var html = new StringBuilder();
 
-            html.Append("""
-                        <!doctype html>
-                        <html lang="en">
-                        <head>
-                        <meta charset="utf-8">
-                        <meta name="viewport" content="width=device-width, initial-scale=1">
-                        <title>maniaortho scores</title>
-                        <style>
-                        :root { --bg: #f6f6f8; --fg: #1c1c22; --muted: #6b6b78; --line: #dcdce3; --card: #ffffff; --accent: #5b4bd6; --warn: #8a5a00; --warn-bg: #fff3d6; }
-                        @media (prefers-color-scheme: dark) { :root { --bg: #15151a; --fg: #ececf1; --muted: #9a9aa8; --line: #2c2c35; --card: #1d1d24; --accent: #a99cff; --warn: #ffd37a; --warn-bg: #3a2e12; } }
-                        * { box-sizing: border-box; }
-                        body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-                        main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
-                        h1 { font-size: 20px; margin: 0 0 4px; }
-                        h2 { font-size: 16px; margin: 32px 0 8px; }
-                        .sub { color: var(--muted); margin: 0 0 20px; }
-                        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-                        .stat { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
-                        .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
-                        .stat span { color: var(--muted); font-size: 13px; }
-                        .banner { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 10px 14px; margin: 0 0 16px; }
-                        .table { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
-                        table { width: 100%; border-collapse: collapse; }
-                        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-                        tr:last-child td { border-bottom: 0; }
-                        th { color: var(--muted); font-weight: 600; font-size: 13px; }
-                        td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-                        td.map { white-space: normal; min-width: 240px; }
-                        .muted { color: var(--muted); }
-                        .pp { color: var(--accent); font-weight: 600; }
-                        </style>
-                        </head>
-                        <body>
-                        <main>
-                        <h1>maniaortho scores</h1>
-                        """);
+            html.Append(Page.Head("maniaortho scores"));
+            html.Append("<h1>maniaortho scores</h1>\n");
 
-            html.Append(CultureInfo.InvariantCulture, $"<p class=\"sub\">Unofficial pp, rated by osu!'s mania calculators {e(calculatorVersion)}. Not connected to osu!.</p>\n");
+            string whose = owner != null ? $"{e(owner)}'s plays. " : string.Empty;
+            html.Append(CultureInfo.InvariantCulture,
+                $"<p class=\"sub\">{whose}Unofficial pp, rated by osu!'s mania calculators {e(calculatorVersion)}. Not part of osu!: it uses osu! only to sign in.</p>\n");
+
+            if (!osuSignIn)
+            {
+                html.Append("<p class=\"banner\">Signing in with osu! is not set up: run <code>server/scripts/setup-osu-sign-in</code>, "
+                            + "then link the game in its settings to send plays to your account.</p>\n");
+            }
 
             if (liveCalculatorVersion != null)
             {

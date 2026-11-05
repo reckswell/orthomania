@@ -6,8 +6,9 @@ this repository, the osu! fork (`reckswell/osu`) keeps a copy in `ortho-server/c
 
 | File | What |
 |---|---|
-| `Messages/` | The upload (`PlayUpload`, `BeatmapUpload`), answer (`PlayResult`) and protocol (`ScoreServerProtocol`) types, one per file, compiled into both the game's ruleset and the server. |
+| `Messages/` | The upload (`PlayUpload`, `BeatmapUpload`), answer (`PlayResult`), link (`LinkStart`, `LinkStatus`) and protocol (`ScoreServerProtocol`) types, one per file, compiled into both the game's ruleset and the server. |
 | `play-upload.example.json` | The `play` part of `POST /api/plays` (multipart: `play` JSON, `beatmap` the `.osu` file, `replay` the `.osr`, optional). |
 | `play-result.example.json` | The server's answer. |
+| `link-start.example.json`, `link-status.example.json` | Linking the game to an account by signing in with osu!: the answers to `POST /api/link` and `POST /api/link/poll`. |
 | `pp-parity.json` | Star rating and pp of synthetic plays. The game's calculators and osu!'s published ones must both give these. |
 | `SyntheticManiaMap.cs` | The synthetic maps those plays are on (compiled into both test projects). |
