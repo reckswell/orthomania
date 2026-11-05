@@ -72,7 +72,7 @@ namespace Orthomania.Patcher
                 var http = GitHubReleaseFeed.CreateHttpClient(patcherVersion);
 
                 flow = new PatcherFlow(layout, new VelopackLazerUpdater(log.Add), new GitHubReleaseFeed(http, settings.ReleaseRepository), new ProcessGameRunner(), log,
-                    patcherVersion);
+                    patcherVersion, devServer: new DevServerRunner(log.Add, Path.Combine(layout.Logs, "server.log"), layout.ServerData));
             }
 
             int? seed = options.Demo != null ? 7 : null;
@@ -130,6 +130,7 @@ namespace Orthomania.Patcher
 
             main.Show(new PatcherView(flow.Status, flow.Notices, flow.Target?.Record.Lazer));
             optionsView.SetInfo(describe());
+            optionsView.SetDevServer(flow.DevServerEnabled);
 
             if (flow.Status.Stage == PatcherStage.Running)
                 Window?.Hide();
@@ -227,6 +228,15 @@ namespace Orthomania.Patcher
             CheckAgain();
         }
 
+        public void ToggleDevServer()
+        {
+            if (flow == null)
+                return;
+
+            flow.SetDevServerEnabled(!flow.DevServerEnabled);
+            optionsView.SetDevServer(flow.DevServerEnabled);
+        }
+
         protected override bool OnExiting()
         {
             // Never leave lazer half updated or a version folder half made.
@@ -306,6 +316,7 @@ namespace Orthomania.Patcher
 
             if (state == "options")
             {
+                optionsView.SetDevServer(true);
                 optionsView.SetInfo("osu! 2026.1105.0 at C:\\Users\\Alpha\\AppData\\Local\\osulazer\n"
                                     + "data: C:\\Users\\Alpha\\Documents\\Projects\\osu!\\ortho-data\npatcher 0.1.0");
                 optionsView.Show();

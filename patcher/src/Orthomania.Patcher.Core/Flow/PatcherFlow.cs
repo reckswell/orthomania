@@ -45,6 +45,7 @@ namespace Orthomania.Patcher.Flow
         private readonly VersionFolders folders;
         private readonly Func<string?, LazerInstall?> findLazer;
         private readonly IReadOnlyList<string> plainLazerData;
+        private readonly IDevServerRunner? devServer;
 
         public PatcherSettings Settings { get; private set; }
 
@@ -78,9 +79,11 @@ namespace Orthomania.Patcher.Flow
 
         public string DataFolder => Settings.ResolveDataFolder();
 
+        /// <param name="devServer">Starts the score server with the game when <see cref="PatcherSettings.DevServer"/> says so (development only).</param>
         public PatcherFlow(PatcherLayout layout, ILazerUpdater lazerUpdater, IReleaseFeed feed, IGameRunner runner, PatcherLog log, Version patcherVersion,
-                           Func<string?, LazerInstall?>? findLazer = null, IReadOnlyList<string>? plainLazerData = null)
+                           Func<string?, LazerInstall?>? findLazer = null, IReadOnlyList<string>? plainLazerData = null, IDevServerRunner? devServer = null)
         {
+            this.devServer = devServer;
             this.layout = layout;
             this.lazerUpdater = lazerUpdater;
             this.feed = feed;
@@ -459,6 +462,8 @@ namespace Orthomania.Patcher.Flow
             State.RecordStarted(target.Lazer, target.Record.Build);
             saveState();
 
+            await using var server = await startDevServerAsync(cancellationToken).ConfigureAwait(false);
+
             log.Add($"starting {target.GameExecutable} (data: {data.Path})");
 
             var clock = Stopwatch.StartNew();
@@ -489,6 +494,45 @@ namespace Orthomania.Patcher.Flow
                 log.Add($"moved {moved} screenshot(s) to stable");
 
             return exitCode;
+        }
+
+        /// <summary>
+        /// The score server for development, when turned on: one already running is used as it is; one started here stops when the
+        /// game closes. A server that does not start never stops the game from starting: the game keeps plays until it can send them.
+        /// </summary>
+        private async Task<IStartedServer?> startDevServerAsync(CancellationToken cancellationToken)
+        {
+            var settings = Settings.DevServer;
+
+            if (settings is not { Enabled: true } || devServer == null)
+                return null;
+
+            setStatus(new PatcherStatus(PatcherStage.Preparing, "Hi!", "starting the score server..."));
+
+            try
+            {
+                return await devServer.EnsureRunningAsync(settings, cancellationToken).ConfigureAwait(false);
+            }
+            catch (DevServerException e)
+            {
+                log.Add($"score server: {e.Message}");
+                addNotice($"The score server did not start: {e.Message}");
+                return null;
+            }
+        }
+
+        public bool DevServerEnabled => Settings.DevServer?.Enabled == true;
+
+        /// <summary>
+        /// Turns starting the score server with the game on or off, and saves it.
+        /// </summary>
+        public void SetDevServerEnabled(bool enabled)
+        {
+            Settings.DevServer ??= new DevServerSettings();
+            Settings.DevServer.Enabled = enabled;
+
+            JsonFile.Write(layout.SettingsFile, Settings);
+            log.Add($"starting the score server with the game: {(enabled ? "on" : "off")}");
         }
 
         /// <summary>

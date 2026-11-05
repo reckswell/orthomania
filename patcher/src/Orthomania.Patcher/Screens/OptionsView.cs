@@ -15,6 +15,7 @@ namespace Orthomania.Patcher.Screens
         void CheckAgain();
         void Repair();
         void RemoveOrthomania();
+        void ToggleDevServer();
         void HideOptions();
     }
 
@@ -25,6 +26,7 @@ namespace Orthomania.Patcher.Screens
     {
         private readonly TextFlowContainer info;
         private readonly PatcherButton remove;
+        private readonly PatcherButton devServer;
         private readonly IOptionsActions actions;
         private double confirmRemoveUntil;
 
@@ -68,6 +70,7 @@ namespace Orthomania.Patcher.Screens
                         button("Open the patcher's log", Palette.BACKGROUND2, actions.OpenLog),
                         button("Check again", Palette.BACKGROUND2, actions.CheckAgain),
                         button("Repair (rebuild orthomania's copy of osu!)", Palette.BACKGROUND2, actions.Repair),
+                        devServer = button(devServerText(false), Palette.BACKGROUND2, actions.ToggleDevServer),
                         remove = button("Remove orthomania (your data stays)", Palette.PINK_DARKER, removeClicked),
                         button("Back", Palette.BACKGROUND1, actions.HideOptions),
                     },
@@ -83,6 +86,13 @@ namespace Orthomania.Patcher.Screens
         };
 
         public void SetInfo(string text) => info.Text = text;
+
+        /// <summary>
+        /// Development only, until the score server runs on its own.
+        /// </summary>
+        public void SetDevServer(bool on) => devServer.Text = devServerText(on);
+
+        private static string devServerText(bool on) => $"Start the score server with osu! (dev): {(on ? "on" : "off")}";
 
         private void removeClicked()
         {

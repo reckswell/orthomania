@@ -26,6 +26,8 @@ namespace Orthomania.Patcher.Tests.Flow
         private FakeLazerUpdater updater = null!;
         private FakeFeed feed = null!;
         private FakeRunner runner = null!;
+        private FakeDevServer devServer = null!;
+        private List<string> events = null!;
         private PatcherLog log = null!;
         private string dataFolder = null!;
 
@@ -51,7 +53,9 @@ namespace Orthomania.Patcher.Tests.Flow
 
             updater = new FakeLazerUpdater();
             feed = new FakeFeed(temp.Combine("published"));
-            runner = new FakeRunner();
+            events = new List<string>();
+            runner = new FakeRunner { OnRun = _ => events.Add("game") };
+            devServer = new FakeDevServer(events);
             log = new PatcherLog(temp.Combine("logs"));
         }
 
@@ -61,7 +65,7 @@ namespace Orthomania.Patcher.Tests.Flow
         private void writeSettings(PatcherSettings settings) => JsonFile.Write(layout.SettingsFile, settings);
 
         private PatcherFlow createFlow() => new PatcherFlow(layout, updater, feed, runner, log, new Version(0, 1, 0), root => LazerInstall.Find(root),
-            new[] { temp.Combine("appdata", "osu") });
+            new[] { temp.Combine("appdata", "osu") }, devServer);
 
         private async Task<PatcherFlow> checkAsync()
         {
@@ -430,6 +434,72 @@ namespace Orthomania.Patcher.Tests.Flow
             Assert.That(File.Exists(install.GameExecutable), Is.True);
         }
 
+        [Test]
+        public async Task TestDevServerIsOffUnlessTurnedOn()
+        {
+            feed.Publish(october, "0.1.0");
+
+            var flow = await checkAsync();
+            await flow.LaunchAsync(CancellationToken.None);
+
+            Assert.That(flow.DevServerEnabled, Is.False);
+            Assert.That(events, Is.EqualTo(new[] { "game" }));
+        }
+
+        [Test]
+        public async Task TestDevServerRunsAroundTheGame()
+        {
+            feed.Publish(october, "0.1.0");
+
+            var flow = await checkAsync();
+            flow.SetDevServerEnabled(true);
+            int exitCode = await flow.LaunchAsync(CancellationToken.None);
+
+            Assert.That(exitCode, Is.Zero);
+            Assert.That(events, Is.EqualTo(new[] { "server started", "game", "server stopped" }));
+            Assert.That(flow.Notices, Is.Empty);
+
+            var saved = JsonFile.ReadOrDefault<PatcherSettings>(layout.SettingsFile, out _);
+            Assert.That(saved.DevServer!.Enabled, Is.True);
+            Assert.That(saved.LazerFolder, Is.EqualTo(install.Root));
+
+            flow = await checkAsync();
+            Assert.That(flow.DevServerEnabled, Is.True);
+            flow.SetDevServerEnabled(false);
+            await flow.LaunchAsync(CancellationToken.None);
+
+            Assert.That(events.Skip(3), Is.EqualTo(new[] { "game" }));
+        }
+
+        [Test]
+        public async Task TestDevServerAlreadyRunningIsLeftRunning()
+        {
+            feed.Publish(october, "0.1.0");
+            devServer.AlreadyRunning = true;
+
+            var flow = await checkAsync();
+            flow.SetDevServerEnabled(true);
+            await flow.LaunchAsync(CancellationToken.None);
+
+            Assert.That(events, Is.EqualTo(new[] { "server found", "game" }));
+        }
+
+        [Test]
+        public async Task TestGameStartsWhenTheServerDoesNot()
+        {
+            feed.Publish(october, "0.1.0");
+            devServer.Fail = true;
+
+            var flow = await checkAsync();
+            flow.SetDevServerEnabled(true);
+            int exitCode = await flow.LaunchAsync(CancellationToken.None);
+
+            Assert.That(exitCode, Is.Zero);
+            Assert.That(events, Is.EqualTo(new[] { "game" }));
+            Assert.That(flow.Notices.Single(), Does.StartWith("The score server did not start"));
+            Assert.That(flow.State.LastWorking, Is.EqualTo(new PairRecord("2026.1026.0", "0.1.0")));
+        }
+
         private static Dictionary<string, string> snapshot(string root)
             => Directory.GetFiles(root, "*", SearchOption.AllDirectories).ToDictionary(f => Path.GetRelativePath(root, f), File.ReadAllText);
 
@@ -512,6 +582,52 @@ namespace Orthomania.Patcher.Tests.Flow
 
             public Task<PublishedPatcher?> FindPatcherAsync(CancellationToken cancellationToken)
                 => Offline ? throw new ReleaseFeedException("offline") : Task.FromResult(Patcher);
+        }
+
+        private sealed class FakeDevServer : IDevServerRunner
+        {
+            private readonly List<string> events;
+
+            public bool Fail;
+            public bool AlreadyRunning;
+
+            public FakeDevServer(List<string> events)
+            {
+                this.events = events;
+            }
+
+            public Task<IStartedServer?> EnsureRunningAsync(DevServerSettings settings, CancellationToken cancellationToken)
+            {
+                if (Fail)
+                    throw new DevServerException("it stopped before it answered (exit code 3).");
+
+                if (AlreadyRunning)
+                {
+                    events.Add("server found");
+                    return Task.FromResult<IStartedServer?>(null);
+                }
+
+                events.Add("server started");
+                return Task.FromResult<IStartedServer?>(new Started(events));
+            }
+
+            private sealed class Started : IStartedServer
+            {
+                private readonly List<string> events;
+
+                public Started(List<string> events)
+                {
+                    this.events = events;
+                }
+
+                public int ProcessId => 1;
+
+                public ValueTask DisposeAsync()
+                {
+                    events.Add("server stopped");
+                    return ValueTask.CompletedTask;
+                }
+            }
         }
 
         private sealed class FakeRunner : IGameRunner

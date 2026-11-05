@@ -38,6 +38,11 @@ namespace Orthomania.Patcher.Settings
         /// </summary>
         public int KeepPrevious { get; set; } = 1;
 
+        /// <summary>
+        /// Development only: start the score server with the game. Null: never.
+        /// </summary>
+        public DevServerSettings? DevServer { get; set; }
+
         public const string DEFAULT_RELEASE_REPOSITORY = "Reckswell/orthomania";
 
         public string ResolveDataFolder() => PathUtils.Normalise(DataFolder ?? DefaultDataFolder);

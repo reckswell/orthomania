@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    name: Test (${{ matrix.os }})
+    name: Test the patcher (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -19,8 +19,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
-      - run: dotnet build Orthomania.sln -c Release
-      - run: dotnet test Orthomania.sln -c Release --no-build --logger "console;verbosity=normal"
+      - run: dotnet build patcher/Orthomania.Patcher.sln -c Release
+      - run: dotnet test patcher/Orthomania.Patcher.sln -c Release --no-build --logger "console;verbosity=normal"
 
   publish:
     name: Publish the patcher (win-x64)
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
-      - run: dotnet publish src/Orthomania.Patcher -c Release -r win-x64 --self-contained -o artifacts/patcher
+      - run: dotnet publish patcher/src/Orthomania.Patcher -c Release -r win-x64 --self-contained -o artifacts/patcher
       - uses: actions/upload-artifact@v4
         with:
           name: orthomania-patcher-win-x64

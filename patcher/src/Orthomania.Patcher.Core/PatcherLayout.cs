@@ -13,6 +13,7 @@ namespace Orthomania.Patcher
     /// downloads\                  unfinished downloads
     /// backups\                    copies of the game's database, taken before a new lazer first opens it
     /// logs\                       the patcher's logs
+    /// server\                     the score server's data, when the patcher starts it (development only)
     /// settings.json               what the person chose
     /// state.json                  what the patcher remembers between launches
     /// </code>
@@ -41,6 +42,8 @@ namespace Orthomania.Patcher
         public string Backups => Path.Combine(Root, "backups");
 
         public string Logs => Path.Combine(Root, "logs");
+
+        public string ServerData => Path.Combine(Root, "server");
 
         public string SettingsFile => Path.Combine(Root, "settings.json");
 
