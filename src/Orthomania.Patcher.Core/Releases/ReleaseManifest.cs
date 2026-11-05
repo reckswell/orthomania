@@ -77,8 +77,8 @@ namespace Orthomania.Patcher.Releases
             if (!LazerVersion.TryParse(Lazer, out _))
                 throw new InvalidDataException($"The manifest names no lazer release (\"{Lazer}\").");
 
-            if (string.IsNullOrWhiteSpace(Build))
-                throw new InvalidDataException("The manifest has no build number.");
+            if (!IsSafeBuildName(Build))
+                throw new InvalidDataException($"The manifest has no usable build number (\"{Build}\").");
 
             if (Files.Count == 0)
                 throw new InvalidDataException("The manifest lists no files.");
@@ -92,6 +92,13 @@ namespace Orthomania.Patcher.Releases
             if (!Files.Any(f => f.Name.StartsWith(RULESET_PREFIX, StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidDataException("The manifest has no ruleset DLL.");
         }
+
+        /// <summary>
+        /// A build number is also a folder name: letters, digits and <c>. + _ -</c> only, starting with a letter or digit.
+        /// </summary>
+        public static bool IsSafeBuildName(string? build)
+            => !string.IsNullOrEmpty(build) && build.Length <= 64 && char.IsAsciiLetterOrDigit(build[0]) && !build.Contains("..")
+               && build.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '+' or '_' or '-');
 
         /// <summary>
         /// Lazer loads <c>osu.Game.Rulesets.*.dll</c> from the folder it runs from.
