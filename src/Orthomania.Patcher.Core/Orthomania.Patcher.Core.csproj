@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <RootNamespace>Orthomania.Patcher</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>What the orthomania patcher does, without its window: finding and updating lazer, the version folders, releases and launching.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The same updater library, at the same version, that osu!(lazer) updates itself with (osu.Desktop.csproj). -->
+    <PackageReference Include="Velopack" Version="1.2.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Orthomania.Patcher.Tests" />
+  </ItemGroup>
+</Project>
