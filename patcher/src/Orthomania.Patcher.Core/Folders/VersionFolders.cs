@@ -13,9 +13,13 @@ namespace Orthomania.Patcher.Folders
     /// The folders orthomania runs lazer from, one per lazer release: <c>%LOCALAPPDATA%\orthomania\lazer\&lt;release&gt;\</c>.
     /// <para>
     /// Each holds hard links to the official files of that release (the same bytes on disk as lazer's install, no extra space), plus
-    /// orthomania's own files: <c>framework.ini</c> (lazer keeps its data beside the program when this file is there), <c>storage.ini</c>
-    /// (which points that data at orthomania's data folder), and the build's ruleset DLL and <c>0Harmony.dll</c> (lazer loads
-    /// <c>osu.Game.Rulesets.*.dll</c> from the folder it runs from). Plain lazer, run from its own install, sees none of this.
+    /// orthomania's own files: the build's ruleset DLL and <c>0Harmony.dll</c> (lazer loads <c>osu.Game.Rulesets.*.dll</c> from the
+    /// folder it runs from), and <see cref="GameSettings.FILE_NAME"/> (where orthomania keeps its own data, and whether it may use the
+    /// osu! sign-in). Plain lazer, run from its own install, sees none of this.
+    /// </para>
+    /// <para>
+    /// There is no <c>framework.ini</c> or <c>storage.ini</c> here, so lazer started from this folder keeps its data where plain lazer
+    /// does: one set of maps, skins, scores and settings for both. <see cref="Verify"/> refuses a folder that has either.
     /// </para>
     /// <para>
     /// A linked file is never opened for writing: that would change lazer's own copy. orthomania only creates files of its own here,
@@ -24,7 +28,14 @@ namespace Orthomania.Patcher.Folders
     /// </summary>
     public sealed class VersionFolders
     {
+        /// <summary>
+        /// With this beside the program, osu-framework keeps the game's storage there instead of in osu!'s data folder.
+        /// </summary>
         public const string FRAMEWORK_INI = "framework.ini";
+
+        /// <summary>
+        /// osu!'s own custom data location (<c>OsuStorage</c>), read from the game's storage.
+        /// </summary>
         public const string STORAGE_INI = "storage.ini";
 
         private const string partial_suffix = ".partial";
@@ -68,7 +79,7 @@ namespace Orthomania.Patcher.Folders
         /// Builds the folder for the installed release from scratch: links lazer's files, then adds orthomania's. Replaces an
         /// existing folder for the same release only once the new one is complete.
         /// </summary>
-        public VersionFolder Create(LazerInstall install, RulesetBuild build, string dataFolder)
+        public VersionFolder Create(LazerInstall install, RulesetBuild build, GameSettings game)
         {
             var release = install.ReadRelease();
 
@@ -87,7 +98,8 @@ namespace Orthomania.Patcher.Folders
             {
                 Lazer = release.Version.Number,
                 Build = build.Build,
-                DataFolder = PathUtils.Normalise(dataFolder),
+                DataFolder = game.DataFolder,
+                OsuSignIn = game.OsuSignIn,
                 CreatedUtc = DateTime.UtcNow,
                 Linked = true,
             };
@@ -113,7 +125,7 @@ namespace Orthomania.Patcher.Folders
                 if (install.ReadRelease().Version != release.Version)
                     throw new IOException("osu! changed while its files were being prepared. Try again.");
 
-                writeOwnFiles(partial, record, build, dataFolder);
+                writeOwnFiles(partial, record, build, game);
                 writeRecord(partial, record);
             }
             catch
@@ -127,10 +139,10 @@ namespace Orthomania.Patcher.Folders
         }
 
         /// <summary>
-        /// Replaces orthomania's own files in an existing folder (a newer build for the same release, or another data folder),
+        /// Replaces orthomania's own files in an existing folder (a newer build for the same release, or other game settings),
         /// leaving lazer's files as they are.
         /// </summary>
-        public VersionFolder Refresh(VersionFolder folder, RulesetBuild build, string dataFolder)
+        public VersionFolder Refresh(VersionFolder folder, RulesetBuild build, GameSettings game)
         {
             if (build.Lazer != folder.Lazer)
                 throw new InvalidOperationException($"{build} cannot go beside osu! {folder.Record.Lazer}.");
@@ -142,17 +154,18 @@ namespace Orthomania.Patcher.Folders
 
             record.OwnFiles.Clear();
             record.Build = build.Build;
-            record.DataFolder = PathUtils.Normalise(dataFolder);
+            record.DataFolder = game.DataFolder;
+            record.OsuSignIn = game.OsuSignIn;
 
-            writeOwnFiles(folder.Directory, record, build, dataFolder);
+            writeOwnFiles(folder.Directory, record, build, game);
             writeRecord(folder.Directory, record);
 
             return VersionFolder.Open(folder.Directory)!;
         }
 
         /// <summary>
-        /// Whether the folder is whole: lazer's files present at their recorded sizes, orthomania's matching their hashes.
-        /// Files lazer adds while running (its shader cache) are not checked.
+        /// Whether the folder is whole: lazer's files present at their recorded sizes, orthomania's matching their hashes, and nothing
+        /// that would keep osu!'s data apart from plain osu!'s. Other files lazer adds while running are not checked.
         /// </summary>
         public static bool Verify(VersionFolder folder, out string? problem)
         {
@@ -187,6 +200,18 @@ namespace Orthomania.Patcher.Folders
                 }
             }
 
+            // Were lazer's own release to ship these, plain lazer would have them too; any other copy gives orthomania's osu! data of its own.
+            foreach (string apart in new[] { FRAMEWORK_INI, STORAGE_INI })
+            {
+                bool lazers = folder.Record.LazerFiles.Exists(e => e.Path.Equals(apart, PathUtils.Comparison));
+
+                if (!lazers && File.Exists(Path.Combine(folder.Directory, apart)))
+                {
+                    problem = $"{apart} would keep osu!'s data apart from plain osu!'s";
+                    return false;
+                }
+            }
+
             problem = null;
             return true;
         }
@@ -213,14 +238,9 @@ namespace Orthomania.Patcher.Folders
             }
         }
 
-        private static void writeOwnFiles(string folder, FolderRecord record, RulesetBuild build, string dataFolder)
+        private static void writeOwnFiles(string folder, FolderRecord record, RulesetBuild build, GameSettings game)
         {
-            // Empty: its presence alone makes osu-framework keep the game's storage beside the program. osu! then keeps its
-            // framework settings with the data (storage.ini), so this one stays empty.
-            writeOwnFile(folder, record, FRAMEWORK_INI, Array.Empty<byte>());
-
-            // osu!'s own custom data location (OsuStorage), read from the storage above.
-            writeOwnFile(folder, record, STORAGE_INI, Encoding.UTF8.GetBytes($"FullPath = {PathUtils.Normalise(dataFolder)}\r\n"));
+            writeOwnFile(folder, record, GameSettings.FILE_NAME, Encoding.UTF8.GetBytes(game.Json));
 
             foreach (var (file, path) in build.Files)
             {

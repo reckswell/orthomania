@@ -24,8 +24,7 @@ namespace Orthomania.Patcher.Screens
     /// <summary>
     /// Everything the main view shows.
     /// </summary>
-    /// <param name="FallbackRelease">The lazer release <see cref="PatcherStage.Fallback"/> would play on.</param>
-    public sealed record PatcherView(PatcherStatus Status, IReadOnlyList<string> Notices, string? FallbackRelease = null);
+    public sealed record PatcherView(PatcherStatus Status, IReadOnlyList<string> Notices);
 
     /// <summary>
     /// Stable's updater laid out in lazer's look: the circle, the thick bar, a big line and a small line, and here the buttons the
@@ -140,10 +139,6 @@ namespace Orthomania.Patcher.Screens
                     bar.Show(1, false);
                     break;
 
-                case PatcherStage.Fallback:
-                    bar.Show(1, false, Palette.YELLOW);
-                    break;
-
                 case PatcherStage.Problem:
                 case PatcherStage.NotInstalled:
                     bar.Show(0, false);
@@ -160,10 +155,6 @@ namespace Orthomania.Patcher.Screens
             {
                 case PatcherStage.Ready:
                     buttons.Add(new PatcherButton("Launch", Palette.PINK, actions.Launch, 160));
-                    break;
-
-                case PatcherStage.Fallback:
-                    buttons.Add(new PatcherButton($"Play on osu! {view.FallbackRelease}", Palette.PINK, actions.Launch, 240));
                     break;
 
                 case PatcherStage.NotInstalled:

@@ -17,16 +17,17 @@ namespace Orthomania.Patcher.Flow
     /// <summary>
     /// What one launch of the patcher does, in order:
     /// <list type="number">
-    /// <item>find official lazer, and check orthomania's folders and data are apart from it;</item>
+    /// <item>find official lazer, and check orthomania's folders and data are apart from osu!'s;</item>
     /// <item>wait until no lazer is running;</item>
     /// <item>update lazer with its own updater, if a newer release is out;</item>
     /// <item>get the newest orthomania build made for exactly the installed release;</item>
     /// <item>prepare the version folder for that pair, and wait on <see cref="PatcherStage.Ready"/>;</item>
-    /// <item>on Launch: back up the database before a new release first opens it, start osu! from the folder, and when it closes,
-    /// move screenshots to stable.</item>
+    /// <item>on Launch: start osu! from the folder.</item>
     /// </list>
-    /// With no build for the installed release yet, it offers the last pair that worked (<see cref="PatcherStage.Fallback"/>). Every
-    /// failure past finding lazer leaves the patcher able to say what happened; none changes lazer's install or plain lazer's data.
+    /// osu! started this way keeps its data where plain osu! does, so both see the same maps, skins, scores and settings. Only one
+    /// release ever opens that data, the installed one, so with no build for it yet orthomania does not start: an older release could
+    /// not open what the newer one has written. The patcher never opens osu!'s data folder; every failure past finding lazer leaves
+    /// it able to say what happened, and none changes lazer's install or osu!'s data.
     /// </summary>
     public sealed class PatcherFlow
     {
@@ -44,7 +45,7 @@ namespace Orthomania.Patcher.Flow
         private readonly BuildStore builds;
         private readonly VersionFolders folders;
         private readonly Func<string?, LazerInstall?> findLazer;
-        private readonly IReadOnlyList<string> plainLazerData;
+        private readonly IReadOnlyList<string> osuData;
         private readonly IDevServerRunner? devServer;
 
         public PatcherSettings Settings { get; private set; }
@@ -67,8 +68,7 @@ namespace Orthomania.Patcher.Flow
         public LazerInstall? Install { get; private set; }
 
         /// <summary>
-        /// What Launch starts: the installed release with its newest build on <see cref="PatcherStage.Ready"/>, the last pair that
-        /// worked on <see cref="PatcherStage.Fallback"/>.
+        /// What Launch starts: the installed release with its newest build, on <see cref="PatcherStage.Ready"/>.
         /// </summary>
         public VersionFolder? Target { get; private set; }
 
@@ -79,9 +79,10 @@ namespace Orthomania.Patcher.Flow
 
         public string DataFolder => Settings.ResolveDataFolder();
 
+        /// <param name="osuData">Where osu! keeps its data, for checking orthomania's is elsewhere (paths only; never opened).</param>
         /// <param name="devServer">Starts the score server with the game when <see cref="PatcherSettings.DevServer"/> says so (development only).</param>
         public PatcherFlow(PatcherLayout layout, ILazerUpdater lazerUpdater, IReleaseFeed feed, IGameRunner runner, PatcherLog log, Version patcherVersion,
-                           Func<string?, LazerInstall?>? findLazer = null, IReadOnlyList<string>? plainLazerData = null, IDevServerRunner? devServer = null)
+                           Func<string?, LazerInstall?>? findLazer = null, IReadOnlyList<string>? osuData = null, IDevServerRunner? devServer = null)
         {
             this.devServer = devServer;
             this.layout = layout;
@@ -91,7 +92,7 @@ namespace Orthomania.Patcher.Flow
             this.log = log;
             this.patcherVersion = patcherVersion;
             this.findLazer = findLazer ?? (root => LazerInstall.Find(root));
-            this.plainLazerData = plainLazerData ?? Data.DataFolder.PlainLazerDataFolders();
+            this.osuData = osuData ?? new[] { Data.DataFolder.OsuDataFolder() };
 
             builds = layout.CreateBuildStore();
             folders = layout.CreateVersionFolders();
@@ -101,8 +102,8 @@ namespace Orthomania.Patcher.Flow
         }
 
         /// <summary>
-        /// Runs every check, ending on <see cref="PatcherStage.Ready"/>, <see cref="PatcherStage.Fallback"/>,
-        /// <see cref="PatcherStage.NotInstalled"/> or <see cref="PatcherStage.Problem"/>.
+        /// Runs every check, ending on <see cref="PatcherStage.Ready"/>, <see cref="PatcherStage.NotInstalled"/> or
+        /// <see cref="PatcherStage.Problem"/>.
         /// </summary>
         public async Task CheckAsync(CancellationToken cancellationToken)
         {
@@ -147,7 +148,7 @@ namespace Orthomania.Patcher.Flow
 
             log.Add($"lazer {Install.ReadRelease().VersionText} at {Install.Root}");
 
-            var apart = Isolation.Check(layout, Install, DataFolder, plainLazerData);
+            var apart = Isolation.Check(layout, Install, DataFolder, osuData);
 
             if (apart.Count > 0)
             {
@@ -173,7 +174,8 @@ namespace Orthomania.Patcher.Flow
 
             if (build == null)
             {
-                offerFallback(release.Version);
+                log.Add($"no build for {release.Version.Number}");
+                problem($"orthomania for osu! {release.Version.Number} is not out yet. Plain osu! works as usual; try again later.");
                 return;
             }
 
@@ -183,13 +185,6 @@ namespace Orthomania.Patcher.Flow
             await waitForGameToCloseAsync(cancellationToken).ConfigureAwait(false);
 
             var folder = prepareFolder(build);
-
-            if (!State.MayOpenData(folder.Lazer))
-            {
-                problem($"Your orthomania data was last opened by osu! {State.DataOpenedBy}, newer than the installed {folder.Record.Lazer}. "
-                        + "Update osu! (open it once) and try again.");
-                return;
-            }
 
             Target = folder;
             prune(folder);
@@ -339,6 +334,7 @@ namespace Orthomania.Patcher.Flow
         private VersionFolder prepareFolder(RulesetBuild build)
         {
             var install = Install!;
+            var game = new GameSettings(DataFolder, Settings.OsuSignIn);
             var folder = folders.Get(build.Lazer);
 
             if (folder != null && !VersionFolders.Verify(folder, out string? problem))
@@ -349,7 +345,7 @@ namespace Orthomania.Patcher.Flow
 
             if (folder == null)
             {
-                folder = folders.Create(install, build, DataFolder);
+                folder = folders.Create(install, build, game);
                 log.Add($"created {folder} at {folder.Directory} ({(folder.Record.Linked ? "linked" : "copied")})");
 
                 if (!folder.Record.Linked)
@@ -358,62 +354,27 @@ namespace Orthomania.Patcher.Flow
                 return folder;
             }
 
-            if (folder.Record.Build != build.Build || !PathUtils.Normalise(folder.Record.DataFolder).Equals(DataFolder, PathUtils.Comparison))
+            if (folder.Record.Build != build.Build || !PathUtils.Normalise(folder.Record.DataFolder).Equals(game.DataFolder, PathUtils.Comparison)
+                || folder.Record.OsuSignIn != game.OsuSignIn)
             {
-                folder = folders.Refresh(folder, build, DataFolder);
+                folder = folders.Refresh(folder, build, game);
                 log.Add($"refreshed {folder}");
             }
 
             return folder;
         }
 
-        private void offerFallback(LazerVersion installed)
-        {
-            var fallback = findFallback(installed);
-
-            if (fallback == null)
-            {
-                log.Add($"no build for {installed.Number} and nothing to fall back on");
-                problem($"orthomania for osu! {installed.Number} is not out yet. Plain osu! works as usual; try again later.");
-                return;
-            }
-
-            Target = fallback;
-            log.Add($"fallback: {fallback}");
-            setStatus(new PatcherStatus(PatcherStage.Fallback, "Almost", $"orthomania for osu! {installed.Number} is not out yet."));
-        }
-
         /// <summary>
-        /// The pair that last worked, else the newest whole folder; only ones allowed to open the data.
-        /// </summary>
-        private VersionFolder? findFallback(LazerVersion installed)
-        {
-            var candidates = folders.All().Where(f => f.Lazer != installed && State.MayOpenData(f.Lazer) && VersionFolders.Verify(f, out _)).ToList();
-
-            var lastWorking = State.LastWorking?.Version;
-
-            return candidates.FirstOrDefault(f => lastWorking != null && f.Lazer == lastWorking && f.Record.Build == State.LastWorking!.Build)
-                   ?? candidates.FirstOrDefault();
-        }
-
-        /// <summary>
-        /// Keeps the target, the last pair that worked, and <see cref="PatcherSettings.KeepPrevious"/> more; with their builds.
+        /// Keeps only the target and its build: no other release may open osu!'s data, and a folder kept for one would also keep that
+        /// release's files on disk after lazer's updater removed them.
         /// </summary>
         private void prune(VersionFolder target)
         {
             try
             {
-                var keep = new List<VersionFolder> { target };
-                var lastWorking = State.LastWorking?.Version;
+                folders.Prune(new[] { target });
 
-                var others = folders.All().Where(f => f.Lazer != target.Lazer).ToList();
-
-                keep.AddRange(others.Where(f => lastWorking != null && f.Lazer == lastWorking));
-                keep.AddRange(others.Where(f => !keep.Contains(f)).Take(Math.Max(0, Settings.KeepPrevious)));
-
-                folders.Prune(keep);
-
-                var keepBuilds = keep.Select(f => RulesetBuild.Open(builds.FolderFor(f.Lazer, f.Record.Build))).OfType<RulesetBuild>().ToList();
+                var keepBuilds = new[] { RulesetBuild.Open(builds.FolderFor(target.Lazer, target.Record.Build)) }.OfType<RulesetBuild>().ToList();
                 builds.Prune(keepBuilds);
             }
             catch (IOException e)
@@ -444,27 +405,12 @@ namespace Orthomania.Patcher.Flow
             var data = new DataFolder(DataFolder);
             data.Prepare();
 
-            string? adopted = data.AdoptDevelopmentDatabase();
-            if (adopted != null)
-                log.Add($"copied the development database {Path.GetFileName(adopted)} to {Data.DataFolder.DATABASE}");
-
-            if (State.IsFirstStartOn(target.Lazer))
-            {
-                string? backup = data.BackupDatabase(layout.Backups, target.Lazer);
-                if (backup != null)
-                    log.Add($"backed up the database to {backup} before osu! {target.Record.Lazer} first opens it");
-            }
-
-            int leftOver = data.MoveScreenshots(Settings.ResolveStableFolder());
-            if (leftOver > 0)
-                log.Add($"moved {leftOver} screenshot(s) left from an earlier run");
-
             State.RecordStarted(target.Lazer, target.Record.Build);
             saveState();
 
             await using var server = await startDevServerAsync(cancellationToken).ConfigureAwait(false);
 
-            log.Add($"starting {target.GameExecutable} (data: {data.Path})");
+            log.Add($"starting {target.GameExecutable} (orthomania data: {data.Path}; osu! sign-in: {(target.Record.OsuSignIn ? "allowed" : "off")})");
 
             var clock = Stopwatch.StartNew();
             int exitCode;
@@ -488,10 +434,6 @@ namespace Orthomania.Patcher.Flow
                 State.RecordWorking(target.Lazer, target.Record.Build);
                 saveState();
             }
-
-            int moved = data.MoveScreenshots(Settings.ResolveStableFolder());
-            if (moved > 0)
-                log.Add($"moved {moved} screenshot(s) to stable");
 
             return exitCode;
         }
@@ -548,8 +490,8 @@ namespace Orthomania.Patcher.Flow
         }
 
         /// <summary>
-        /// Removes everything orthomania made beside lazer (version folders, builds, downloads). The data folder, its backups and the
-        /// settings stay; lazer's install is untouched.
+        /// Removes everything orthomania made beside lazer (version folders, builds, downloads). orthomania's data folder and the
+        /// settings stay; lazer's install and osu!'s data are untouched.
         /// </summary>
         public void RemoveOrthomania()
         {

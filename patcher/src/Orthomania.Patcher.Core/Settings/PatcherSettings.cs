@@ -14,14 +14,16 @@ namespace Orthomania.Patcher.Settings
         public string? LazerFolder { get; set; }
 
         /// <summary>
-        /// orthomania's game data (database, settings, imported files, replays). Null: <see cref="DefaultDataFolder"/>.
+        /// orthomania's own data (its settings, play log, replays, score server sign-in); never osu!'s data, which osu! keeps in its own
+        /// folder for plain lazer and orthomania alike. Null: <see cref="DefaultDataFolder"/>.
         /// </summary>
         public string? DataFolder { get; set; }
 
         /// <summary>
-        /// osu!(stable)'s install, where screenshots are moved after each run. Null: <c>%LOCALAPPDATA%\osu!</c>.
+        /// Whether the game started by orthomania may use the osu! sign-in osu! saved. Off: osu! stays signed out while orthomania is
+        /// in it, and the saved sign-in is left as it is for plain osu!.
         /// </summary>
-        public string? StableFolder { get; set; }
+        public bool OsuSignIn { get; set; }
 
         /// <summary>
         /// Where orthomania's releases are published (a GitHub repository, <c>owner/name</c>).
@@ -34,11 +36,6 @@ namespace Orthomania.Patcher.Settings
         public bool UpdateLazer { get; set; } = true;
 
         /// <summary>
-        /// How many earlier version folders and builds to keep beside the current one, to fall back on.
-        /// </summary>
-        public int KeepPrevious { get; set; } = 1;
-
-        /// <summary>
         /// Development only: start the score server with the game. Null: never.
         /// </summary>
         public DevServerSettings? DevServer { get; set; }
@@ -47,29 +44,29 @@ namespace Orthomania.Patcher.Settings
 
         public string ResolveDataFolder() => PathUtils.Normalise(DataFolder ?? DefaultDataFolder);
 
-        public string ResolveStableFolder()
-            => PathUtils.Normalise(StableFolder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "osu!"));
-
         public string? ResolveLazerFolder() => LazerFolder == null ? null : PathUtils.Normalise(LazerFolder);
 
         /// <summary>
-        /// The data folder the old launcher (<c>osu.exe</c>, next to <c>ortho-data</c> in <c>Documents\Projects\osu!</c>) used, when it
-        /// is there, so nothing moves; otherwise <c>%APPDATA%\orthomania\data</c>.
+        /// <see cref="DevelopmentDataFolder"/> when it is there, so development keeps everything in one place; otherwise
+        /// <c>%APPDATA%\orthomania\data</c>.
         /// </summary>
         public static string DefaultDataFolder
         {
             get
             {
-                string legacy = LegacyDataFolder;
+                string development = DevelopmentDataFolder;
 
-                if (Directory.Exists(legacy))
-                    return legacy;
+                if (Directory.Exists(development))
+                    return development;
 
                 return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "orthomania", "data");
             }
         }
 
-        public static string LegacyDataFolder
+        /// <summary>
+        /// <c>Documents\Projects\osu!\ortho-data</c>, beside the clones orthomania is developed in.
+        /// </summary>
+        public static string DevelopmentDataFolder
             => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Projects", "osu!", "ortho-data");
     }
 }

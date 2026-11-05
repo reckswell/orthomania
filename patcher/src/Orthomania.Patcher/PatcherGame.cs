@@ -128,7 +128,7 @@ namespace Orthomania.Patcher
             if (flow == null)
                 return;
 
-            main.Show(new PatcherView(flow.Status, flow.Notices, flow.Target?.Record.Lazer));
+            main.Show(new PatcherView(flow.Status, flow.Notices));
             optionsView.SetInfo(describe());
             optionsView.SetDevServer(flow.DevServerEnabled);
 
@@ -265,7 +265,6 @@ namespace Orthomania.Patcher
         private void showDemo(string state)
         {
             var notices = new List<string>();
-            string? fallback = null;
 
             PatcherStatus status;
 
@@ -287,9 +286,8 @@ namespace Orthomania.Patcher
                     status = new PatcherStatus(PatcherStage.GettingOrthomania, "Getting orthomania", "built for osu! 2026.1105.0", 0.7);
                     break;
 
-                case "fallback":
-                    status = new PatcherStatus(PatcherStage.Fallback, "Almost", "orthomania for osu! 2026.1105.0 is not out yet.");
-                    fallback = "2026.1026.0";
+                case "notout":
+                    status = new PatcherStatus(PatcherStage.Problem, "Oops", "orthomania for osu! 2026.1105.0 is not out yet. Plain osu! works as usual; try again later.");
                     break;
 
                 case "notinstalled":
@@ -298,7 +296,8 @@ namespace Orthomania.Patcher
 
                 case "problem":
                     status = new PatcherStatus(PatcherStage.Problem, "Oops",
-                        "orthomania's data folder (C:\\Users\\Alpha\\AppData\\Roaming\\osu) is plain osu!'s data. Choose a separate one, so each keeps its own.");
+                        "orthomania's data folder (C:\\Users\\Alpha\\Documents\\Projects\\osu!\\ortho-data) holds osu!'s own data (client.realm). orthomania now "
+                        + "plays on osu!'s data and keeps only its own files there: move osu!'s files out, or choose another folder.");
                     break;
 
                 case "notice":
@@ -312,7 +311,7 @@ namespace Orthomania.Patcher
                     break;
             }
 
-            main.Show(new PatcherView(status, notices, fallback));
+            main.Show(new PatcherView(status, notices));
 
             if (state == "options")
             {

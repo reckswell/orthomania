@@ -58,7 +58,11 @@ namespace Orthomania.Patcher.Folders
 
     public sealed class FolderRecord
     {
-        public const int CURRENT_FORMAT = 1;
+        /// <summary>
+        /// 2: lazer keeps its data where plain lazer does, and orthomania's settings go in <see cref="GameSettings.FILE_NAME"/>. A folder
+        /// of format 1 (with a <c>storage.ini</c> pointing osu! at a data folder of its own) is not opened, so it is built again.
+        /// </summary>
+        public const int CURRENT_FORMAT = 2;
 
         internal static readonly JsonSerializerOptions JSON_OPTIONS = new JsonSerializerOptions
         {
@@ -79,9 +83,14 @@ namespace Orthomania.Patcher.Folders
         public string Build { get; set; } = string.Empty;
 
         /// <summary>
-        /// The data folder <c>storage.ini</c> points at.
+        /// orthomania's own data folder, as <see cref="GameSettings.FILE_NAME"/> names it.
         /// </summary>
         public string DataFolder { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Whether <see cref="GameSettings.FILE_NAME"/> lets the game use the osu! sign-in.
+        /// </summary>
+        public bool OsuSignIn { get; set; }
 
         /// <summary>
         /// Whether lazer's files are hard links (false: copies, when links were refused).
@@ -96,7 +105,7 @@ namespace Orthomania.Patcher.Folders
         public List<FolderEntry> LazerFiles { get; set; } = new List<FolderEntry>();
 
         /// <summary>
-        /// orthomania's own files (ini files and the build's files), with their hashes.
+        /// orthomania's own files (<see cref="GameSettings.FILE_NAME"/> and the build's files), with their hashes.
         /// </summary>
         public List<OwnFile> OwnFiles { get; set; } = new List<OwnFile>();
     }
