@@ -1,0 +1,135 @@
+{
+  "about": "osu!mania star rating and pp for synthetic maps (SyntheticManiaMap.cs). The game's tests check its calculators give these values; the score server's tests check osu!'s published calculators give the same. Regenerate stars and pp from the game's calculators with ORTHO_WRITE_PP_PARITY=1 (see ScoreServerParityTest).",
+  "plays": [
+    {
+      "name": "4K stream, no mods, all Perfect",
+      "keys": 4,
+      "notes": 800,
+      "bpm": 200,
+      "overall_difficulty": 8,
+      "mods": [],
+      "statistics": {
+        "Perfect": 1074,
+        "Great": 0,
+        "Good": 0,
+        "Ok": 0,
+        "Meh": 0,
+        "Miss": 0
+      },
+      "stars": 3.876701172796642,
+      "pp": 154.89476712113827
+    },
+    {
+      "name": "4K stream, DT, mixed judgements",
+      "keys": 4,
+      "notes": 800,
+      "bpm": 200,
+      "overall_difficulty": 8,
+      "mods": [
+        {
+          "acronym": "DT"
+        }
+      ],
+      "statistics": {
+        "Perfect": 752,
+        "Great": 215,
+        "Good": 54,
+        "Ok": 21,
+        "Meh": 11,
+        "Miss": 21
+      },
+      "stars": 5.468264903780419,
+      "pp": 215.06850178388942
+    },
+    {
+      "name": "7K, no mods, mixed judgements",
+      "keys": 7,
+      "notes": 1200,
+      "bpm": 170,
+      "overall_difficulty": 8.5,
+      "mods": [],
+      "statistics": {
+        "Perfect": 1330,
+        "Great": 193,
+        "Good": 48,
+        "Ok": 16,
+        "Meh": 8,
+        "Miss": 16
+      },
+      "stars": 3.1525616415502,
+      "pp": 79.2703702438738
+    },
+    {
+      "name": "7K, HT, mostly Perfect",
+      "keys": 7,
+      "notes": 1200,
+      "bpm": 170,
+      "overall_difficulty": 8.5,
+      "mods": [
+        {
+          "acronym": "HT"
+        }
+      ],
+      "statistics": {
+        "Perfect": 1509,
+        "Great": 81,
+        "Good": 16,
+        "Ok": 0,
+        "Meh": 0,
+        "Miss": 5
+      },
+      "stars": 2.560211740228825,
+      "pp": 57.91553893860047
+    },
+    {
+      "name": "4K, NF and EZ, many misses",
+      "keys": 4,
+      "notes": 600,
+      "bpm": 160,
+      "overall_difficulty": 7,
+      "mods": [
+        {
+          "acronym": "NF"
+        },
+        {
+          "acronym": "EZ"
+        }
+      ],
+      "statistics": {
+        "Perfect": 404,
+        "Great": 201,
+        "Good": 80,
+        "Ok": 40,
+        "Meh": 24,
+        "Miss": 56
+      },
+      "stars": 3.220712378129821,
+      "pp": 3.4030835103655876
+    },
+    {
+      "name": "7K, Hidden and Mirror",
+      "keys": 7,
+      "notes": 900,
+      "bpm": 190,
+      "overall_difficulty": 8,
+      "mods": [
+        {
+          "acronym": "HD"
+        },
+        {
+          "acronym": "MR"
+        }
+      ],
+      "statistics": {
+        "Perfect": 1081,
+        "Great": 97,
+        "Good": 24,
+        "Ok": 0,
+        "Meh": 0,
+        "Miss": 6
+      },
+      "stars": 3.4228998663623695,
+      "pp": 107.1434566803051
+    }
+  ]
+}

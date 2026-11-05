@@ -55,7 +55,7 @@ Needs the .NET 10 SDK. The patcher and the score server are built and tested apa
 | Folder | What it is |
 | --- | --- |
 | `patcher/` | The patcher: `Orthomania.Patcher.sln`. The ruleset joins it here. |
-| `server/` | The score server: `OrthoServer.sln`, with its own tests and API contract |
+| `server/` | The score server: `OrthoServer.sln`, with its own tests, API contract and scripts ([server/README.md](server/README.md)) |
 
 The files at the top (`global.json`, `Directory.Build.props`, `.editorconfig`, CI) are shared by both.
 
@@ -95,6 +95,6 @@ This option goes away once the server runs on its own for public playtesting.
 
 ## Status
 
-The patcher comes first. The score server moves into `server/` in its own pull request, and the ruleset and its hooks move into `patcher/` once their own work lands; until then there are no builds to download.
+The patcher comes first. The score server is in `server/`; the ruleset and its hooks move into `patcher/` once their own work lands. Until then there are no builds to download.
 
 osu!, osu!(lazer) and their logos are ppy's; orthomania is not affiliated with ppy.

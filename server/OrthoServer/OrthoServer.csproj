@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>OrthoServer</RootNamespace>
+    <Description>A local score server for maniaortho: stores plays and rates them with osu!'s live mania calculators.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="ppy.osu.Game" Version="$(OsuCalculatorVersion)" />
+    <PackageReference Include="ppy.osu.Game.Rulesets.Mania" Version="$(OsuCalculatorVersion)" />
+    <!-- Only so osu! maps decode, for osu!mania converts of them. -->
+    <PackageReference Include="ppy.osu.Game.Rulesets.Osu" Version="$(OsuCalculatorVersion)" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The upload and answer types, shared with the game's ruleset. -->
+    <Compile Include="..\contract\Messages\*.cs" Link="Contract\Messages\%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="OsuCalculatorVersion" Value="$(OsuCalculatorVersion)" />
+    <InternalsVisibleTo Include="OrthoServer.Tests" />
+  </ItemGroup>
+</Project>
