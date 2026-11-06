@@ -22,6 +22,40 @@ jobs:
       - run: dotnet build patcher/Orthomania.Patcher.sln -c Release
       - run: dotnet test patcher/Orthomania.Patcher.sln -c Release --no-build --logger "console;verbosity=normal"
 
+  test-server:
+    name: Test the score server (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet build server/OrthoServer.sln -c Release
+      - run: dotnet test server/OrthoServer.sln -c Release --no-build --logger "console;verbosity=normal"
+
+  launch:
+    name: launch.bat builds the patcher and the server
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Run launch.bat without opening the window
+        shell: cmd
+        env:
+          ORTHOMANIA_BUILD_ONLY: "1"
+        run: call launch.bat
+      - name: Both are where the patcher looks for them
+        shell: cmd
+        run: |
+          if not exist artifacts\launch\orthomania.exe exit /b 1
+          if not exist artifacts\launch\server\OrthoServer.exe exit /b 1
+
   publish:
     name: Publish the patcher (win-x64)
     runs-on: windows-latest
@@ -35,3 +69,17 @@ jobs:
         with:
           name: orthomania-patcher-win-x64
           path: artifacts/patcher
+
+  publish-server:
+    name: Publish the score server (win-x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet publish server/OrthoServer -c Release -r win-x64 --self-contained -o artifacts/server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orthomania-server-win-x64
+          path: artifacts/server

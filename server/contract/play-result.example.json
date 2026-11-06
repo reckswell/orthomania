@@ -1,0 +1,16 @@
+{
+  "play_id": 12,
+  "already_stored": false,
+  "pp": 123.45,
+  "stars": 4.56,
+  "awards_pp": true,
+  "reason": null,
+  "top_position": 3,
+  "weight": 0.9025,
+  "total_pp": 1234.56,
+  "total_pp_before": 1222.22,
+  "accuracy": 97.12,
+  "calculator_version": "2026.730.0",
+  "live_calculator_version": null,
+  "client_pp": 123.45
+}

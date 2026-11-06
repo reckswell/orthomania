@@ -1,0 +1,13 @@
+<!-- The score server builds against osu!'s published NuGet packages (ppy.osu.Game*), at the version osu!'s live score
+     processor uses. It takes the repository's C# settings and adds its own. -->
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!-- ppy.osu.Game depends on an ImageSharp with advisories; the server decodes no images. -->
+    <NoWarn>$(NoWarn);NU1902;NU1903</NoWarn>
+    <!-- The calculator version: the ppy.osu.Game and ppy.osu.Game.Rulesets.* packages osu!'s live score processor uses.
+         scripts/server-update updates the file; the server rates every stored play again when it changes. -->
+    <OsuCalculatorVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)calculator-version.txt').Trim())</OsuCalculatorVersion>
+  </PropertyGroup>
+</Project>

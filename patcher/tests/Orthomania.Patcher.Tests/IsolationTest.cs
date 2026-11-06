@@ -1,5 +1,5 @@
+using System.IO;
 using NUnit.Framework;
-using Orthomania.Patcher.Lazer;
 
 namespace Orthomania.Patcher.Tests
 {
@@ -21,20 +21,32 @@ namespace Orthomania.Patcher.Tests
         {
             using var temp = new TempFolder();
             var install = Fakes.Lazer(temp.Combine("osulazer"));
-            var plain = new[] { temp.Combine("osu"), temp.Combine("lazer-moved") };
+            var osu = new[] { temp.Combine("osu") };
 
-            Assert.That(Isolation.Check(new PatcherLayout(temp.Combine("osulazer", "orthomania")), install, temp.Combine("ortho-data"), plain), Is.Not.Empty,
+            Assert.That(Isolation.Check(new PatcherLayout(temp.Combine("osulazer", "orthomania")), install, temp.Combine("ortho-data"), osu), Is.Not.Empty,
                 "orthomania inside lazer's install");
-            Assert.That(Isolation.Check(new PatcherLayout(temp.Combine("orthomania")), install, temp.Combine("osulazer", "data"), plain), Is.Not.Empty,
+            Assert.That(Isolation.Check(new PatcherLayout(temp.Combine("orthomania")), install, temp.Combine("osulazer", "data"), osu), Is.Not.Empty,
                 "data inside lazer's install");
-            Assert.That(Isolation.Check(new PatcherLayout(temp.Combine("orthomania")), install, temp.Combine("osu"), plain), Is.Not.Empty,
-                "plain lazer's data");
-            Assert.That(Isolation.Check(new PatcherLayout(temp.Combine("orthomania")), install, temp.Combine("lazer-moved"), plain), Is.Not.Empty,
-                "plain lazer's moved data");
-            Assert.That(Isolation.Check(new PatcherLayout(temp.Combine("orthomania")), install, temp.Path, plain), Is.Not.Empty,
-                "a folder holding plain lazer's data");
-            Assert.That(Isolation.Check(new PatcherLayout(temp.Combine("orthomania")), install, temp.Combine("orthomania", "lazer", "data"), plain), Is.Not.Empty,
+            Assert.That(Isolation.Check(new PatcherLayout(temp.Combine("orthomania")), install, temp.Combine("osu"), osu), Is.Not.Empty,
+                "osu!'s data");
+            Assert.That(Isolation.Check(new PatcherLayout(temp.Combine("orthomania")), install, temp.Path, osu), Is.Not.Empty,
+                "a folder holding osu!'s data");
+            Assert.That(Isolation.Check(new PatcherLayout(temp.Combine("orthomania")), install, temp.Combine("orthomania", "lazer", "data"), osu), Is.Not.Empty,
                 "data inside the version folders");
+        }
+
+        [Test]
+        public void TestRefusesADataFolderWithOsuDataInIt()
+        {
+            using var temp = new TempFolder();
+            var install = Fakes.Lazer(temp.Combine("osulazer"));
+            var layout = new PatcherLayout(temp.Combine("orthomania"));
+            string moved = temp.Combine("lazer-moved");
+
+            Directory.CreateDirectory(moved);
+            File.WriteAllText(Path.Combine(moved, "client.realm"), "osu!'s data, moved by osu!");
+
+            Assert.That(Isolation.Check(layout, install, moved, new[] { temp.Combine("osu") }), Has.One.Contains("holds osu!'s own data (client.realm)"));
         }
     }
 }

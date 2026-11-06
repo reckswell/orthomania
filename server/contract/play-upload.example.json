@@ -1,0 +1,39 @@
+{
+  "client": "maniaortho",
+  "client_version": "2026.1104.0",
+  "score_id": "6f1b2c4e-6a4f-4d55-9a3e-0f6d1c2b7a10",
+  "played_at": "2026-11-04T20:31:05+00:00",
+  "passed": true,
+  "rank": "S",
+  "beatmap": {
+    "md5": "0123456789abcdef0123456789abcdef",
+    "online_id": 0,
+    "set_online_id": 0,
+    "status": "Ranked",
+    "artist": "maniaortho tests",
+    "title": "Synthetic 4K",
+    "version": "800 notes 200 bpm OD8",
+    "creator": "maniaortho",
+    "keys": 4
+  },
+  "mods": [
+    { "acronym": "DT", "settings": { "speed_change": 1.5 } }
+  ],
+  "statistics": { "Perfect": 1000, "Great": 60, "Good": 10, "Ok": 2, "Meh": 1, "Miss": 1 },
+  "maximum_statistics": { "Perfect": 1074 },
+  "max_combo": 702,
+  "accuracy": 0.9868,
+  "total_score": 912345,
+  "client_pp": 123.45,
+  "client_stars": 4.56,
+  "client_difficulty_version": 20241007,
+  "settings": {
+    "preset": "Chunithm",
+    "camera": "Perspective",
+    "wall": "0.2000",
+    "wall_scale": "Chunithm 5",
+    "lift": "0.074",
+    "wall_keeps_visible_time": "no",
+    "scroll_speed": "29"
+  }
+}

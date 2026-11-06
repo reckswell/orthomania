@@ -2,7 +2,7 @@
 
 osu!mania where notes approach angled instead of straight down, as a patch for official osu!(lazer) rather than a copy of the game.
 
-Starting osu! starts plain lazer. Starting `orthomania.exe` checks for updates, then starts lazer with orthomania hooked in. Neither touches the other's files or data.
+Starting osu! starts plain lazer. Starting `orthomania.exe` checks for updates, then starts lazer with orthomania hooked in. Both use osu!'s own data, so maps, skins, scores and settings changed in one are there in the other. orthomania keeps only its own data apart, and the patcher never opens osu!'s data or its sign-in.
 
 ![The patcher window in each of its states](docs/patcher-states.png)
 
@@ -10,12 +10,12 @@ Starting osu! starts plain lazer. Starting `orthomania.exe` checks for updates, 
 
 On every launch the patcher:
 
-1. finds official lazer (`%LOCALAPPDATA%\osulazer`) and checks that orthomania's folders and data are apart from it;
+1. finds official lazer (`%LOCALAPPDATA%\osulazer`) and checks that orthomania's folders are apart from it and that orthomania's data folder holds none of osu!'s data;
 2. waits until no lazer is running ("close osu! to continue");
 3. updates lazer if a newer release is out, with lazer's own updater (Velopack, the same feed and `Update.exe` lazer uses);
 4. gets the orthomania build made for exactly the installed lazer release, checking every file against its hash;
 5. prepares the folder lazer runs from for orthomania, and waits on **Ready**;
-6. on **Launch**, backs up the database before a new lazer release first opens it, starts lazer from that folder, and moves screenshots to osu!(stable) once it closes.
+6. on **Launch**, starts lazer from that folder.
 
 ### Finding osu!
 
@@ -27,18 +27,25 @@ The patcher looks for lazer where its installer puts it (`%LOCALAPPDATA%\osulaze
 
 It finds osu!(stable) as well and lists it, but orthomania runs on lazer. **Find osu!** (on the main screen when lazer is not found, or **osu! installs** in Options) lists what was found, picks a lazer, searches again, or opens Windows' folder picker to choose a folder by hand. A folder chosen by hand is saved as `lazerFolder` in `settings.json`, and then it is the only place the patcher looks.
 
-If there is no build for a new lazer release yet, plain lazer is updated anyway and the patcher offers the last release orthomania worked on.
+If there is no build for a new lazer release yet, plain lazer is updated anyway and orthomania waits for its build. It never starts an older release instead: osu!'s data is shared, and an older release cannot open what a newer one has written.
 
 | Folder | What is in it | Changed by |
 | --- | --- | --- |
 | `%LOCALAPPDATA%\osulazer` | Official lazer | Only lazer's own updater |
-| `%APPDATA%\osu` | Plain lazer's data | Only plain lazer |
-| `%LOCALAPPDATA%\orthomania\lazer\<release>` | Hard links to that release's files, plus the ruleset DLL, `0Harmony.dll`, `framework.ini` and `storage.ini` | The patcher |
-| `%LOCALAPPDATA%\orthomania\builds`, `backups`, `logs` | Downloaded builds, database backups, the patcher's log | The patcher |
-| `Documents\Projects\osu!\ortho-data` (or `%APPDATA%\orthomania\data`) | orthomania's game data | lazer, when the patcher starts it |
+| `%APPDATA%\osu` (or wherever osu! moved it) | osu!'s data: maps, skins, scores, settings, the osu! sign-in | osu!, started plainly or by orthomania. Never the patcher |
+| `%LOCALAPPDATA%\orthomania\lazer\<release>` | Hard links to the installed release's files, plus the ruleset DLL, `0Harmony.dll` and `orthomania-game.json` | The patcher |
+| `%LOCALAPPDATA%\orthomania\builds`, `logs`, `settings.json` | Downloaded builds, the patcher's log, the patcher's settings | The patcher |
+| `Documents\Projects\osu!\ortho-data` (or `%APPDATA%\orthomania\data`) | orthomania's own data: its settings, play log, replays, plays waiting for the score server, its score server sign-in | The ruleset, inside lazer |
 | `%LOCALAPPDATA%\orthomania\server` | The score server's data, when the patcher starts it (development only) | The score server |
 
-Lazer loads `osu.Game.Rulesets.*.dll` from the folder it runs from, and the DLL puts its hooks in as it loads. `framework.ini` beside the game keeps lazer's storage there, and `storage.ini` points it at orthomania's data. A hard link is a second name for the same file, so the folder costs no space and is byte for byte the official release; it also keeps an older release whole after lazer updates, to fall back on.
+Lazer loads `osu.Game.Rulesets.*.dll` from the folder it runs from, and the DLL puts its hooks in as it loads. There is no `framework.ini` or `storage.ini` in that folder, so lazer keeps its data exactly where plain lazer does (the patcher refuses a folder that has either). A hard link is a second name for the same file, so the folder costs no space and is byte for byte the official release. Only the installed release's folder is kept.
+
+### What orthomania may touch
+
+- **The patcher** reads and writes only its own folder (`%LOCALAPPDATA%\orthomania`), orthomania's data folder (where it only leaves a note) and lazer's install (which it reads, links and updates with lazer's own updater). It never opens osu!'s data folder, so it never sees osu!'s settings, database or saved sign-in. It checks orthomania's data folder is not osu!'s by path, and by the names of the files in orthomania's own folder.
+- **The game side** (the ruleset DLL, inside lazer) is told by `orthomania-game.json` beside it where orthomania's data folder is, and whether it may use the osu! sign-in. It keeps everything of its own there, never in osu!'s data. By default (`"osuSignIn": false`) it keeps osu! signed out while it is loaded: it neither uses nor changes the sign-in osu! saved, so plain osu! stays signed in as it was. `"osuSignIn": true` in the patcher's `settings.json` allows it.
+
+Builds made before this (manifest format 1) expected a copy of osu!'s data of their own, so the patcher does not start them. An orthomania data folder that still holds such a copy (`client*.realm`, `game.ini`) stops the patcher with a note to move osu!'s files out.
 
 ## Releases
 
@@ -46,7 +53,7 @@ Each build is a GitHub release tagged `lazer-<lazer release>-<build>` (for examp
 
 ```json
 {
-  "format": 1,
+  "format": 2,
   "lazer": "2026.1026.0",
   "build": "0.1.0",
   "files": [
@@ -56,7 +63,15 @@ Each build is a GitHub release tagged `lazer-<lazer release>-<build>` (for examp
 }
 ```
 
-A build is only ever put beside the lazer release it names, and it can add files to lazer's but never replace one. The patcher itself is released as `patcher-<version>`.
+A build is only ever put beside the lazer release it names, and it can add files to lazer's but never replace one. Format 2 promises what [What orthomania may touch](#what-orthomania-may-touch) asks of the game side. The patcher itself is released as `patcher-<version>`.
+
+## Launching from a clone
+
+Double-click `launch.bat` at the top of the clone. It builds the patcher and the score server from this clone into
+`artifacts\launch` (the first time takes a minute or two, later ones only rebuild what changed) and opens `orthomania.exe`,
+which then does everything above. The score server is built beside it, so the patcher's dev option can start it (see
+[below](#starting-the-score-server-with-the-game-development-only)). It needs the .NET 10 SDK, and says so if it is missing.
+If orthomania is already open, it leaves it open.
 
 ## Building
 
@@ -65,7 +80,7 @@ Needs the .NET 10 SDK. The patcher and the score server are built and tested apa
 | Folder | What it is |
 | --- | --- |
 | `patcher/` | The patcher: `Orthomania.Patcher.sln`. The ruleset joins it here. |
-| `server/` | The score server: `OrthoServer.sln`, with its own tests and API contract |
+| `server/` | The score server: `OrthoServer.sln`, with its own tests, API contract and scripts ([server/README.md](server/README.md)) |
 
 The files at the top (`global.json`, `Directory.Build.props`, `.editorconfig`, CI) are shared by both.
 
@@ -82,7 +97,7 @@ dotnet publish patcher/src/Orthomania.Patcher -c Release -r win-x64 --self-conta
 
 The window uses lazer's Torus font, read at run time from the installed lazer's `osu.Game.Resources.dll`; lazer's resources are licensed separately, so they are never shipped here. Without lazer it falls back to Roboto.
 
-To see a state without checking or changing anything: `orthomania --demo ready` (also `starting`, `waiting`, `updating`, `getting`, `fallback`, `notinstalled`, `problem`, `notice`, `options`, `installs`). Add `--screenshot file.png` to save it and close, and `--lazer-resources path\to\osu.Game.Resources.dll` to use Torus from elsewhere.
+To see a state without checking or changing anything: `orthomania --demo ready` (also `starting`, `waiting`, `updating`, `getting`, `notout`, `notinstalled`, `problem`, `notice`, `options`, `installs`). Add `--screenshot file.png` to save it and close, and `--lazer-resources path\to\osu.Game.Resources.dll` to use Torus from elsewhere.
 
 ### Starting the score server with the game (development only)
 
@@ -105,6 +120,6 @@ This option goes away once the server runs on its own for public playtesting.
 
 ## Status
 
-The patcher comes first. The score server moves into `server/` in its own pull request, and the ruleset and its hooks move into `patcher/` once their own work lands; until then there are no builds to download.
+The patcher comes first. The score server is in `server/`; the ruleset and its hooks move into `patcher/` once their own work lands. Until then there are no builds to download.
 
 osu!, osu!(lazer) and their logos are ppy's; orthomania is not affiliated with ppy.

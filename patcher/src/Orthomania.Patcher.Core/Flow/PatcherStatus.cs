@@ -21,11 +21,6 @@ namespace Orthomania.Patcher.Flow
         /// </summary>
         Ready,
 
-        /// <summary>
-        /// No orthomania build for the installed lazer yet, but an earlier pair that worked is kept and can be played.
-        /// </summary>
-        Fallback,
-
         NotInstalled,
 
         /// <summary>
