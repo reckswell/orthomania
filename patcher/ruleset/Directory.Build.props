@@ -1,0 +1,17 @@
+<!-- The game side of orthomania: the ruleset lazer loads, built against one lazer release's own packages. -->
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <!-- Or a lazer release's own files, which is what every published build is made against: -p:LazerProps=<folder>/lazer.props,
+       written by release.py fetch. It sets LazerVersion and lists the release's assemblies (LazerReference) and native
+       libraries (LazerNative). ppy does not put every lazer release on NuGet. -->
+  <Import Project="$(LazerProps)" Condition="'$(LazerProps)' != ''" />
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <LangVersion>14.0</LangVersion>
+    <!-- The lazer release to build for: lazer-version.txt (ppy.osu.Game and its rulesets on NuGet at that version), or
+         -p:LazerVersion=... for another release on NuGet. -->
+    <LazerVersion Condition="'$(LazerVersion)' == ''">$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)lazer-version.txt').Trim())</LazerVersion>
+    <!-- ppy.osu.Game depends on an ImageSharp with advisories; the ruleset decodes images only through lazer. -->
+    <NoWarn>$(NoWarn);NU1902;NU1903</NoWarn>
+  </PropertyGroup>
+</Project>

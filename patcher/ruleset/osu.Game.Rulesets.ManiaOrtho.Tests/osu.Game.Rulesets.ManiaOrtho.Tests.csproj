@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup Label="Project">
+    <OutputType>WinExe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <StartupObject>osu.Game.Rulesets.ManiaOrtho.Tests.Program</StartupObject>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+  <ItemGroup Label="Package References">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
+    <PackageReference Include="NUnit" Version="4.6.1" />
+    <PackageReference Include="NUnit3TestAdapter" Version="6.3.0" />
+  </ItemGroup>
+  <ItemGroup Label="Lazer" Condition="'$(LazerProps)' == ''">
+    <PackageReference Include="ppy.osu.Game" Version="$(LazerVersion)" />
+    <PackageReference Include="ppy.osu.Game.Rulesets.Mania" Version="$(LazerVersion)" />
+    <!-- Only for tests that switch away from maniaortho (present beatmap). -->
+    <PackageReference Include="ppy.osu.Game.Rulesets.Osu" Version="$(LazerVersion)" />
+  </ItemGroup>
+  <ItemGroup Label="Lazer" Condition="'$(LazerProps)' != ''">
+    <!-- The release's own files, run as lazer runs them: its assemblies beside the tests, and its native libraries. -->
+    <Reference Include="@(LazerReference)" />
+    <None Include="@(LazerNative)" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+  <ItemGroup Label="Project References">
+    <ProjectReference Include="..\osu.Game.Rulesets.ManiaOrtho\osu.Game.Rulesets.ManiaOrtho.csproj" />
+  </ItemGroup>
+  <ItemGroup Label="Test files">
+    <None Include="Resources\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Label="Score server contract">
+    <!-- The same synthetic maps the score server's tests rate. -->
+    <Compile Include="..\..\..\server\contract\SyntheticManiaMap.cs" Link="ScoreServer\SyntheticManiaMap.cs" />
+  </ItemGroup>
+</Project>
