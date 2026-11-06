@@ -1,0 +1,14 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+*.user
+*.suo
+.vs/
+.idea/
+*.DotSettings.user
+
+# Local runs
+artifacts/
+screenshots-local/
+TestResults/
