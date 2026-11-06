@@ -57,6 +57,9 @@ namespace osu.Game.Rulesets.ManiaOrtho
         private IBindable<APIState>? apiState;
         private IBindable<APIUser>? apiUser;
 
+        // Kept: a bound copy is only weakly held by what it is bound to, so one nobody keeps stops hearing changes once collected.
+        private IBindable<string>? scoreServerLinkToken;
+
         /// <summary>
         /// Keeps this ruleset's section of the key binding settings on osu!mania's keys, which gameplay uses. Here because this
         /// is the ruleset's one part of the game that lives with the settings, where keys are changed.
@@ -488,7 +491,8 @@ namespace osu.Game.Rulesets.ManiaOrtho
             apiUser = api?.LocalUser.GetBoundCopy();
             scoreServerAddress.BindValueChanged(_ => showScoreServerSignIn());
             scoreServerLink.Message.BindValueChanged(_ => showScoreServerSignIn());
-            ((ManiaOrthoRulesetConfigManager)Config).ScoreServer.GetBindable<string>(ScoreServerSetting.LinkToken).BindValueChanged(_ => showScoreServerSignIn());
+            scoreServerLinkToken = ((ManiaOrthoRulesetConfigManager)Config).ScoreServer.GetBindable<string>(ScoreServerSetting.LinkToken);
+            scoreServerLinkToken.BindValueChanged(_ => showScoreServerSignIn());
             apiState?.BindValueChanged(_ => Schedule(showScoreServerSignIn));
             apiUser?.BindValueChanged(_ => Schedule(showScoreServerSignIn));
             showScoreServerSignIn();

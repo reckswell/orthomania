@@ -627,6 +627,14 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Configuration
             });
             showPanel();
 
+            // What the panel watches must outlive a collection: bound copies are only weakly held.
+            AddStep("collect garbage", () =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+            });
+
             AddAssert("offers to link", () => linkButton.Text.ToString(), () => Is.EqualTo("Link with osu!"));
             AddAssert("plays go to the first account", addressNote, () => Does.StartWith("Not linked"));
 
