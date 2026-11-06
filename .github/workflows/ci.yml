@@ -22,6 +22,25 @@ jobs:
       - run: dotnet build patcher/Orthomania.Patcher.sln -c Release
       - run: dotnet test patcher/Orthomania.Patcher.sln -c Release --no-build --logger "console;verbosity=normal"
 
+  test-ruleset:
+    name: Test the game side (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      # Against the lazer release in patcher/ruleset/lazer-version.txt, from NuGet. Published builds are tested against each
+      # lazer release's own files instead (lazer-builds.yml).
+      - run: dotnet test patcher/ruleset/osu.Game.Rulesets.ManiaOrtho.Tests -c Release --logger "console;verbosity=normal"
+      - name: The release steps run
+        shell: bash
+        run: python3 -I patcher/ruleset/release.py --help
+
   test-server:
     name: Test the score server (${{ matrix.os }})
     strategy:

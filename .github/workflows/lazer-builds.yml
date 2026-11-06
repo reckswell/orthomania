@@ -1,0 +1,118 @@
+name: Builds for each lazer release
+
+# orthomania.exe checks lazer for updates on every launch, then downloads the orthomania build made for exactly that lazer
+# release (a GitHub release tagged lazer-<release>-<build>). This makes those builds: every hour it looks at lazer's newest
+# release on each channel (lazer and tachyon), and for one without a build it fetches that release's own files from lazer's
+# updater, builds the ruleset against them, runs its tests against them, and publishes the build. A change to the ruleset on
+# main, or a run by hand, builds again with a higher build number, which replaces the older build on each player's next launch.
+on:
+  schedule:
+    - cron: "23 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - "patcher/ruleset/**"
+      - "server/contract/**"
+      - ".github/workflows/lazer-builds.yml"
+  workflow_dispatch:
+    inputs:
+      lazer:
+        description: "A lazer release to build for (2026.1005.0 or 2026.1005.0-lazer); blank for the newest on each channel"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lazer-builds
+  cancel-in-progress: false
+
+jobs:
+  find:
+    name: Find lazer releases without a build
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.find.outputs.matrix }}
+      build: ${{ steps.find.outputs.build }}
+      any: ${{ steps.find.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LAZER: ${{ inputs.lazer }}
+        run: >-
+          python3 -I patcher/ruleset/release.py find
+          --repository "${{ github.repository }}"
+          --event "${{ github.event_name }}"
+          --run-number "${{ github.run_number }}"
+          --lazer "$LAZER"
+
+  build:
+    name: Build for osu! ${{ matrix.tag }}
+    needs: find
+    if: needs.find.outputs.any == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.find.outputs.matrix) }}
+    # Players run lazer on Windows: the tests run against the release's own Windows files.
+    runs-on: windows-latest
+    env:
+      # A full path: MSBuild reads -p:LazerProps from the project's folder, not this one.
+      LAZER_FILES: ${{ github.workspace }}/artifacts/lazer
+      RELEASE_FILES: artifacts/release
+      BUILD: ${{ needs.find.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Fetch osu! ${{ matrix.tag }} as its updater installs it
+        run: python -I patcher/ruleset/release.py fetch --tag "${{ matrix.tag }}" --to "${{ env.LAZER_FILES }}"
+
+      - name: Test against it
+        run: >-
+          dotnet test patcher/ruleset/osu.Game.Rulesets.ManiaOrtho.Tests -c Release
+          "-p:LazerProps=${{ env.LAZER_FILES }}/lazer.props"
+          --logger "console;verbosity=normal"
+
+      - name: Build against it
+        run: dotnet build patcher/ruleset/osu.Game.Rulesets.ManiaOrtho -c Release "-p:LazerProps=${{ env.LAZER_FILES }}/lazer.props"
+
+      - id: package
+        name: Package the build
+        run: >-
+          python -I patcher/ruleset/release.py package
+          --lazer "${{ matrix.lazer }}" --build "${{ env.BUILD }}" --commit "${{ github.sha }}"
+          --source patcher/ruleset/osu.Game.Rulesets.ManiaOrtho/bin/Release/net10.0
+          --to "${{ env.RELEASE_FILES }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orthomania-${{ steps.package.outputs.tag }}
+          path: ${{ env.RELEASE_FILES }}
+
+      - name: Publish ${{ steps.package.outputs.tag }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.package.outputs.tag }}
+        run: |
+          gh release create "$TAG" "$RELEASE_FILES"/* \
+            --target "${{ github.sha }}" \
+            --title "orthomania ${BUILD} for osu! ${{ matrix.tag }}" \
+            --notes "Built and tested against osu!(lazer) ${{ matrix.tag }}'s own files. orthomania.exe downloads it on its next launch with that release of lazer."
+
+      # Marks the release as tried, so the hourly check does not fail on it again every hour: a draft is never offered to
+      # players, and the next change to the ruleset on main (or a run by hand) builds it again.
+      - name: Note the failed build
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: lazer-${{ matrix.lazer }}-${{ env.BUILD }}
+        run: |
+          gh release create "$TAG" --draft --target "${{ github.sha }}" \
+            --title "orthomania ${BUILD} for osu! ${{ matrix.tag }}: failed" \
+            --notes "Building or testing against osu!(lazer) ${{ matrix.tag }} failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Not offered to players. It is built again on the next change to the ruleset on main, or by hand."
