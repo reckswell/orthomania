@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup Label="Project">
+    <OutputType>Library</OutputType>
+    <!-- Lazer loads osu.Game.Rulesets.*.dll from the folder it runs from. -->
+    <AssemblyName>osu.Game.Rulesets.ManiaOrtho</AssemblyName>
+    <RootNamespace>osu.Game.Rulesets.ManiaOrtho</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>osu!mania beatmaps on a tilted highway.</Description>
+  </PropertyGroup>
+
+  <!-- Compile-time only: lazer brings its own copies at run time. The release workflow builds and tests against each lazer
+       release's own files (LazerProps), so a DLL is never put beside a lazer it was not built for. -->
+  <ItemGroup Label="Lazer" Condition="'$(LazerProps)' == ''">
+    <PackageReference Include="ppy.osu.Game" Version="$(LazerVersion)" />
+    <PackageReference Include="ppy.osu.Game.Rulesets.Mania" Version="$(LazerVersion)" />
+  </ItemGroup>
+  <ItemGroup Label="Lazer" Condition="'$(LazerProps)' != ''">
+    <Reference Include="@(LazerReference)" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup Label="Hooks">
+    <!-- 0Harmony.dll ships beside the ruleset: it puts in the few hooks that used to be edits to lazer (Hooks/). -->
+    <PackageReference Include="Lib.Harmony" Version="2.4.3" />
+  </ItemGroup>
+
+  <ItemGroup Label="Score server contract">
+    <!-- The upload, answer and link types, shared with the score server. -->
+    <Compile Include="..\..\..\server\contract\Messages\*.cs" Link="ScoreServer\Messages\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup Label="Resources">
+    <!-- The osu!mania release this build's scoring code was checked against: saved plays are rated again when it changes
+         (Scoring/PlayLogRatings.cs). -->
+    <EmbeddedResource Include="..\live-mania-version.txt" LogicalName="live-mania-version.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="osu.Game.Rulesets.ManiaOrtho.Tests" />
+  </ItemGroup>
+
+  <!-- A library's packages stay in the NuGet cache, and lazer brings all of them but Harmony: copy Harmony, and only Harmony,
+       beside the build, which is everything a release ships (release.py). -->
+  <Target Name="CopyHarmonyBesideTheBuild" AfterTargets="Build">
+    <ItemGroup>
+      <OrthomaniaHarmony Include="@(ReferencePath)" Condition="'%(Filename)%(Extension)' == '0Harmony.dll'" />
+    </ItemGroup>
+    <Error Condition="'@(OrthomaniaHarmony)' == ''" Text="0Harmony.dll was not among the ruleset's references." />
+    <Copy SourceFiles="@(OrthomaniaHarmony)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

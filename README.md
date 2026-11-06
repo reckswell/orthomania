@@ -43,25 +43,35 @@ Lazer loads `osu.Game.Rulesets.*.dll` from the folder it runs from, and the DLL 
 ### What orthomania may touch
 
 - **The patcher** reads and writes only its own folder (`%LOCALAPPDATA%\orthomania`), orthomania's data folder (where it only leaves a note) and lazer's install (which it reads, links and updates with lazer's own updater). It never opens osu!'s data folder, so it never sees osu!'s settings, database or saved sign-in. It checks orthomania's data folder is not osu!'s by path, and by the names of the files in orthomania's own folder.
-- **The game side** (the ruleset DLL, inside lazer) is told by `orthomania-game.json` beside it where orthomania's data folder is, and whether it may use the osu! sign-in. It keeps everything of its own there, never in osu!'s data. By default (`"osuSignIn": false`) it keeps osu! signed out while it is loaded: it neither uses nor changes the sign-in osu! saved, so plain osu! stays signed in as it was. `"osuSignIn": true` in the patcher's `settings.json` allows it.
+- **The game side** (the ruleset DLL, inside lazer) is told by `orthomania-game.json` beside it where orthomania's data folder is, and whether it may use the osu! sign-in. It keeps everything of its own there, never in osu!'s data: its settings in `settings\` (`mania.json`, `highway.json`, `score-server.json` with the score server sign-in), and the play log, replays and plays waiting for the score server in `maniaortho\`. By default (`"osuSignIn": false`) it keeps osu! signed out while it is loaded: lazer's API is given an empty copy of osu!'s settings that lives only in memory, so it neither uses nor changes the sign-in osu! saved, and plain osu! stays signed in as it was. You can still sign in to osu! in the game; that sign-in is forgotten when the game closes. `"osuSignIn": true` in the patcher's `settings.json` allows the saved sign-in.
 
 Builds made before this (manifest format 1) expected a copy of osu!'s data of their own, so the patcher does not start them. An orthomania data folder that still holds such a copy (`client*.realm`, `game.ini`) stops the patcher with a note to move osu!'s files out.
 
 ## Releases
 
-Each build is a GitHub release tagged `lazer-<lazer release>-<build>` (for example `lazer-2026.1026.0-0.1.0`) with `orthomania.json` and the files it lists:
+Each build is a GitHub release tagged `lazer-<lazer release>-<build>` (for example `lazer-2026.1005.0-1.0.12`) with `orthomania.json` and the files it lists:
 
 ```json
 {
   "format": 2,
-  "lazer": "2026.1026.0",
-  "build": "0.1.0",
+  "lazer": "2026.1005.0",
+  "build": "1.0.12",
+  "commit": "…",
   "files": [
     { "name": "osu.Game.Rulesets.ManiaOrtho.dll", "sha256": "…", "size": 123456 },
+    { "name": "osu.Game.Rulesets.ManiaOrtho.pdb", "sha256": "…", "size": 123456 },
     { "name": "0Harmony.dll", "sha256": "…", "size": 123456 }
   ]
 }
 ```
+
+The builds are made by [`lazer-builds.yml`](.github/workflows/lazer-builds.yml). Every hour it looks at lazer's newest release on each channel (lazer and tachyon). For one without a build, it:
+
+1. downloads that release's own files from lazer's updater, the same package `Update.exe` installs, checked against the SHA-256 the updater lists;
+2. builds the ruleset against exactly those files, and runs all its tests against them on Windows (including that the hooks still find what they hook, and that lazer still loads rulesets before it signs in);
+3. publishes the build. orthomania.exe picks it up on its next launch.
+
+A change to the ruleset on main, or a run by hand (**Run workflow**, optionally naming a release), builds again with a higher build number, which replaces the older build on each player's next launch. A build that fails is left as a draft release with a link to the run, so the hourly check does not try it again until the ruleset changes. NuGet's `ppy.osu.Game` is not used for releases, because ppy does not publish every lazer release there.
 
 A build is only ever put beside the lazer release it names, and it can add files to lazer's but never replace one. Format 2 promises what [What orthomania may touch](#what-orthomania-may-touch) asks of the game side. The patcher itself is released as `patcher-<version>`.
 
@@ -79,15 +89,26 @@ Needs the .NET 10 SDK. The patcher and the score server are built and tested apa
 
 | Folder | What it is |
 | --- | --- |
-| `patcher/` | The patcher: `Orthomania.Patcher.sln`. The ruleset joins it here. |
+| `patcher/` | The patcher: `Orthomania.Patcher.sln` |
+| `patcher/ruleset/` | The game side: the ruleset lazer loads (`osu.Game.Rulesets.ManiaOrtho`), its hooks into lazer, and its tests |
 | `server/` | The score server: `OrthoServer.sln`, with its own tests, API contract and scripts ([server/README.md](server/README.md)) |
 
-The files at the top (`global.json`, `Directory.Build.props`, `.editorconfig`, CI) are shared by both.
+The files at the top (`global.json`, `Directory.Build.props`, `.editorconfig`, CI) are shared by all of them.
 
 ```
 dotnet test patcher/Orthomania.Patcher.sln
 dotnet publish patcher/src/Orthomania.Patcher -c Release -r win-x64 --self-contained -o artifacts/patcher
+dotnet test patcher/ruleset/osu.Game.Rulesets.ManiaOrtho.Tests
 ```
+
+The ruleset builds against the lazer release in `patcher/ruleset/lazer-version.txt`, from NuGet. To build and test it against another release's own files, as the release workflow does:
+
+```
+python patcher/ruleset/release.py fetch --tag 2026.1005.0-lazer --to artifacts/lazer
+dotnet test patcher/ruleset/osu.Game.Rulesets.ManiaOrtho.Tests -p:LazerProps=%CD%\artifacts\lazer\lazer.props
+```
+
+It runs on stock lazer: the few changes it needs in lazer itself are hooks (`patcher/ruleset/osu.Game.Rulesets.ManiaOrtho/Hooks/`, with [Harmony](https://github.com/pardeike/Harmony)) put in as lazer loads the DLL. Each one is skipped, with a line in lazer's log, if a release no longer has what it hooks, and the tests fail on such a release, so it gets no build.
 
 | Project | What it is |
 | --- | --- |
@@ -120,6 +141,6 @@ This option goes away once the server runs on its own for public playtesting.
 
 ## Status
 
-The patcher comes first. The score server is in `server/`; the ruleset and its hooks move into `patcher/` once their own work lands. Until then there are no builds to download.
+The patcher, the game side (`patcher/ruleset/`) and the score server (`server/`) are all here. Builds are published by the release workflow once it runs from main.
 
 osu!, osu!(lazer) and their logos are ppy's; orthomania is not affiliated with ppy.
