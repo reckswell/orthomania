@@ -17,6 +17,16 @@ On every launch the patcher:
 5. prepares the folder lazer runs from for orthomania, and waits on **Ready**;
 6. on **Launch**, starts lazer from that folder.
 
+### Finding osu!
+
+The patcher looks for lazer where its installer puts it (`%LOCALAPPDATA%\osulazer`). If it is not there, it searches the computer once and remembers what it found (`found-installs.json`):
+
+- the places osu! records for itself: lazer's uninstall entry and its `osu://` link, stable's `.osz` and `osu!` links and uninstall entry, and any `osu!.exe` running now;
+- the usual folders (`%LOCALAPPDATA%\osu!`, `osu!` or `Games\osu!` at the top of each drive, `Program Files`);
+- then each fixed drive and your Desktop, Documents, Downloads and Games folders, three levels down. It only lists folders and looks for `osu!.exe` in them, skips Windows' and other programs' folders, and stops after 60,000 folders or 10 seconds.
+
+It finds osu!(stable) as well and lists it, but orthomania runs on lazer. **Find osu!** (on the main screen when lazer is not found, or **osu! installs** in Options) lists what was found, picks a lazer, searches again, or opens Windows' folder picker to choose a folder by hand. A folder chosen by hand is saved as `lazerFolder` in `settings.json`, and then it is the only place the patcher looks.
+
 If there is no build for a new lazer release yet, plain lazer is updated anyway and orthomania waits for its build. It never starts an older release instead: osu!'s data is shared, and an older release cannot open what a newer one has written.
 
 | Folder | What is in it | Changed by |
@@ -87,7 +97,7 @@ dotnet publish patcher/src/Orthomania.Patcher -c Release -r win-x64 --self-conta
 
 The window uses lazer's Torus font, read at run time from the installed lazer's `osu.Game.Resources.dll`; lazer's resources are licensed separately, so they are never shipped here. Without lazer it falls back to Roboto.
 
-To see a state without checking or changing anything: `orthomania --demo ready` (also `starting`, `waiting`, `updating`, `getting`, `notout`, `notinstalled`, `problem`, `notice`, `options`). Add `--screenshot file.png` to save it and close, and `--lazer-resources path\to\osu.Game.Resources.dll` to use Torus from elsewhere.
+To see a state without checking or changing anything: `orthomania --demo ready` (also `starting`, `waiting`, `updating`, `getting`, `notout`, `notinstalled`, `problem`, `notice`, `options`, `installs`). Add `--screenshot file.png` to save it and close, and `--lazer-resources path\to\osu.Game.Resources.dll` to use Torus from elsewhere.
 
 ### Starting the score server with the game (development only)
 

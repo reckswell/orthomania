@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using NUnit.Framework;
 using Orthomania.Patcher.Flow;
 using Orthomania.Patcher.Folders;
+using Orthomania.Patcher.Installs;
 using Orthomania.Patcher.Launch;
 using Orthomania.Patcher.Lazer;
 using Orthomania.Patcher.Releases;
@@ -27,6 +28,7 @@ namespace Orthomania.Patcher.Tests.Flow
         private FakeFeed feed = null!;
         private FakeRunner runner = null!;
         private FakeDevServer devServer = null!;
+        private FakeFinder finder = null!;
         private List<string> events = null!;
         private PatcherLog log = null!;
         private string dataFolder = null!;
@@ -53,6 +55,7 @@ namespace Orthomania.Patcher.Tests.Flow
             events = new List<string>();
             runner = new FakeRunner { OnRun = _ => events.Add("game") };
             devServer = new FakeDevServer(events);
+            finder = new FakeFinder();
             log = new PatcherLog(temp.Combine("logs"));
         }
 
@@ -62,7 +65,7 @@ namespace Orthomania.Patcher.Tests.Flow
         private void writeSettings(PatcherSettings settings) => JsonFile.Write(layout.SettingsFile, settings);
 
         private PatcherFlow createFlow() => new PatcherFlow(layout, updater, feed, runner, log, new Version(0, 1, 0), root => LazerInstall.Find(root),
-            new[] { temp.Combine("appdata", "osu") }, devServer);
+            new[] { temp.Combine("appdata", "osu") }, devServer, finder);
 
         private async Task<PatcherFlow> checkAsync()
         {
@@ -79,8 +82,122 @@ namespace Orthomania.Patcher.Tests.Flow
             var flow = await checkAsync();
 
             Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.NotInstalled));
-            Assert.That(flow.Status.Detail, Is.EqualTo("osu!(lazer) is not installed."));
+            Assert.That(flow.Status.Detail, Is.EqualTo($"osu!(lazer) is not in {PathUtils.Normalise(install.Root)}. Install it, or choose where it is."));
             Assert.That(flow.Target, Is.Null);
+            Assert.That(finder.Searches, Is.Zero, "a folder chosen by hand is the only place looked at");
+        }
+
+        /// <summary>
+        /// No folder chosen, and lazer is not where its installer puts it.
+        /// </summary>
+        private PatcherFlow createUnchosenFlow()
+        {
+            writeSettings(new PatcherSettings { DataFolder = dataFolder });
+
+            return new PatcherFlow(layout, updater, feed, runner, log, new Version(0, 1, 0), root => root == null ? null : LazerInstall.Find(root),
+                new[] { temp.Combine("appdata", "osu") }, devServer, finder);
+        }
+
+        [Test]
+        public async Task TestSearchesForLazerElsewhereAndRemembersIt()
+        {
+            feed.Publish(october, "0.1.0");
+            finder.Result.Add(new OsuInstall(OsuKind.Stable, temp.Combine("osu!"), null));
+            finder.Result.Add(new OsuInstall(OsuKind.Lazer, PathUtils.Normalise(install.Root), october.Number));
+
+            var flow = createUnchosenFlow();
+            var details = new List<string>();
+            flow.StatusChanged += s => details.Add(s.Detail);
+            await flow.CheckAsync(CancellationToken.None);
+
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Ready), flow.Status.Detail);
+            Assert.That(flow.Install!.Root, Is.EqualTo(install.Root));
+            Assert.That(details, Does.Contain("looking for osu! on this computer..."));
+            Assert.That(finder.Searches, Is.EqualTo(1));
+            Assert.That(flow.ChosenLazerFolder, Is.Null);
+
+            var saved = JsonFile.ReadOrDefault<FoundInstalls>(layout.FoundInstallsFile, out _);
+            Assert.That(saved.Installs.Select(i => i.Kind), Is.EqualTo(new[] { OsuKind.Stable, OsuKind.Lazer }));
+            Assert.That(saved.SearchedUtc, Is.Not.Null);
+
+            // Next time it is used straight away.
+            flow = createUnchosenFlow();
+            await flow.CheckAsync(CancellationToken.None);
+
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Ready), flow.Status.Detail);
+            Assert.That(finder.Searches, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task TestNothingFoundButStable()
+        {
+            finder.Result.Add(new OsuInstall(OsuKind.Stable, temp.Combine("osu!"), null));
+
+            var flow = createUnchosenFlow();
+            await flow.CheckAsync(CancellationToken.None);
+
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.NotInstalled));
+            Assert.That(flow.Status.Detail, Does.StartWith($"Found osu!(stable) at {temp.Combine("osu!")}"));
+        }
+
+        [Test]
+        public async Task TestNothingFound()
+        {
+            var flow = createUnchosenFlow();
+            await flow.CheckAsync(CancellationToken.None);
+
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.NotInstalled));
+            Assert.That(flow.Status.Detail, Is.EqualTo("osu!(lazer) is not installed."));
+            Assert.That(finder.Searches, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task TestChoosingAFolder()
+        {
+            feed.Publish(october, "0.1.0");
+
+            string stableFolder = temp.Combine("osu!");
+            Directory.CreateDirectory(Path.Combine(stableFolder, "Songs"));
+            File.WriteAllText(Path.Combine(stableFolder, "osu!.exe"), "stable");
+            Directory.CreateDirectory(temp.Combine("nothing"));
+
+            var flow = createUnchosenFlow();
+            await flow.CheckAsync(CancellationToken.None);
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.NotInstalled));
+
+            var none = flow.ChooseFolder(temp.Combine("nothing"));
+            Assert.That(none.Install, Is.Null);
+            Assert.That(none.Message, Does.StartWith("There is no osu! in"));
+
+            var stableChoice = flow.ChooseFolder(stableFolder);
+            Assert.That(stableChoice.Install!.Kind, Is.EqualTo(OsuKind.Stable));
+            Assert.That(stableChoice.Message, Does.Contain("orthomania runs on osu!(lazer)"));
+            Assert.That(flow.ChosenLazerFolder, Is.Null);
+
+            var lazerChoice = flow.ChooseFolder(install.GameExecutable);
+            Assert.That(lazerChoice.Install!.Kind, Is.EqualTo(OsuKind.Lazer));
+            Assert.That(flow.ChosenLazerFolder, Is.EqualTo(PathUtils.Normalise(install.Root)));
+
+            var settings = JsonFile.ReadOrDefault<PatcherSettings>(layout.SettingsFile, out _);
+            Assert.That(settings.LazerFolder, Is.EqualTo(PathUtils.Normalise(install.Root)));
+            Assert.That(settings.DataFolder, Is.EqualTo(dataFolder));
+
+            await flow.CheckAsync(CancellationToken.None);
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Ready), flow.Status.Detail);
+            Assert.That(flow.Found.Installs.Select(i => i.Kind), Is.EquivalentTo(new[] { OsuKind.Lazer, OsuKind.Stable }));
+        }
+
+        [Test]
+        public async Task TestSearchKeepsFoldersChosenByHand()
+        {
+            var flow = createUnchosenFlow();
+            await flow.CheckAsync(CancellationToken.None);
+            flow.ChooseFolder(install.Root);
+
+            finder.Result.Add(new OsuInstall(OsuKind.Stable, temp.Combine("osu!"), null));
+            var found = await flow.SearchAsync(CancellationToken.None);
+
+            Assert.That(found.Select(i => i.Kind), Is.EqualTo(new[] { OsuKind.Stable, OsuKind.Lazer }));
         }
 
         [Test]
@@ -572,6 +689,18 @@ namespace Orthomania.Patcher.Tests.Flow
 
             public Task<PublishedPatcher?> FindPatcherAsync(CancellationToken cancellationToken)
                 => Offline ? throw new ReleaseFeedException("offline") : Task.FromResult(Patcher);
+        }
+
+        private sealed class FakeFinder : IInstallFinder
+        {
+            public readonly List<OsuInstall> Result = new List<OsuInstall>();
+            public int Searches;
+
+            public IReadOnlyList<OsuInstall> Find(CancellationToken cancellationToken)
+            {
+                Searches++;
+                return Result.ToList();
+            }
         }
 
         private sealed class FakeDevServer : IDevServerRunner

@@ -13,6 +13,7 @@ namespace Orthomania.Patcher.Screens
         void OpenDataFolder();
         void OpenLog();
         void CheckAgain();
+        void ShowInstalls();
         void Repair();
         void RemoveOrthomania();
         void ToggleDevServer();
@@ -44,7 +45,7 @@ namespace Orthomania.Patcher.Screens
                     AutoSizeAxes = Axes.Y,
                     Direction = FillDirection.Vertical,
                     Padding = new MarginPadding { Horizontal = 30, Top = 22 },
-                    Spacing = new Vector2(0, 8),
+                    Spacing = new Vector2(0, 6),
                     Children = new Drawable[]
                     {
                         new SpriteText
@@ -64,11 +65,12 @@ namespace Orthomania.Patcher.Screens
                             RelativeSizeAxes = Axes.X,
                             AutoSizeAxes = Axes.Y,
                             TextAnchor = Anchor.TopCentre,
-                            Margin = new MarginPadding { Bottom = 6 },
+                            Margin = new MarginPadding { Bottom = 4 },
                         },
                         button("Open the data folder", Palette.BACKGROUND2, actions.OpenDataFolder),
                         button("Open the patcher's log", Palette.BACKGROUND2, actions.OpenLog),
                         button("Check again", Palette.BACKGROUND2, actions.CheckAgain),
+                        button("osu! installs (find or choose)", Palette.BACKGROUND2, actions.ShowInstalls),
                         button("Repair (rebuild orthomania's copy of osu!)", Palette.BACKGROUND2, actions.Repair),
                         devServer = button(devServerText(false), Palette.BACKGROUND2, actions.ToggleDevServer),
                         remove = button("Remove orthomania (your data stays)", Palette.PINK_DARKER, removeClicked),
@@ -82,7 +84,7 @@ namespace Orthomania.Patcher.Screens
         {
             Anchor = Anchor.TopCentre,
             Origin = Anchor.TopCentre,
-            Height = 32,
+            Height = 30,
         };
 
         public void SetInfo(string text) => info.Text = text;

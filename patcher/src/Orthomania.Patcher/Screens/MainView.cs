@@ -17,6 +17,7 @@ namespace Orthomania.Patcher.Screens
         void Launch();
         void CheckAgain();
         void InstallLazer();
+        void ShowInstalls();
         void ShowOptions();
         void OpenNotice(int index);
     }
@@ -158,8 +159,9 @@ namespace Orthomania.Patcher.Screens
                     break;
 
                 case PatcherStage.NotInstalled:
-                    buttons.Add(new PatcherButton("Install osu!", Palette.PINK, actions.InstallLazer, 160));
-                    buttons.Add(new PatcherButton("Check again", Palette.BACKGROUND1, actions.CheckAgain, 140));
+                    buttons.Add(new PatcherButton("Install osu!", Palette.PINK, actions.InstallLazer, 150));
+                    buttons.Add(new PatcherButton("Find osu!", Palette.BACKGROUND1, actions.ShowInstalls, 130));
+                    buttons.Add(new PatcherButton("Check again", Palette.BACKGROUND1, actions.CheckAgain, 130));
                     break;
 
                 case PatcherStage.Problem:

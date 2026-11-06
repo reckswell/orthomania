@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Orthomania.Patcher.Data;
 using Orthomania.Patcher.Folders;
+using Orthomania.Patcher.Installs;
 using Orthomania.Patcher.Launch;
 using Orthomania.Patcher.Lazer;
 using Orthomania.Patcher.Releases;
@@ -47,6 +48,7 @@ namespace Orthomania.Patcher.Flow
         private readonly Func<string?, LazerInstall?> findLazer;
         private readonly IReadOnlyList<string> osuData;
         private readonly IDevServerRunner? devServer;
+        private readonly IInstallFinder installFinder;
 
         public PatcherSettings Settings { get; private set; }
 
@@ -81,10 +83,13 @@ namespace Orthomania.Patcher.Flow
 
         /// <param name="osuData">Where osu! keeps its data, for checking orthomania's is elsewhere (paths only; never opened).</param>
         /// <param name="devServer">Starts the score server with the game when <see cref="PatcherSettings.DevServer"/> says so (development only).</param>
+        /// <param name="installFinder">Searches this computer for osu! when lazer is not where its installer puts it.</param>
         public PatcherFlow(PatcherLayout layout, ILazerUpdater lazerUpdater, IReleaseFeed feed, IGameRunner runner, PatcherLog log, Version patcherVersion,
-                           Func<string?, LazerInstall?>? findLazer = null, IReadOnlyList<string>? osuData = null, IDevServerRunner? devServer = null)
+                           Func<string?, LazerInstall?>? findLazer = null, IReadOnlyList<string>? osuData = null, IDevServerRunner? devServer = null,
+                           IInstallFinder? installFinder = null)
         {
             this.devServer = devServer;
+            this.installFinder = installFinder ?? new InstallFinder(new InstallPlaces(), log.Add);
             this.layout = layout;
             this.lazerUpdater = lazerUpdater;
             this.feed = feed;
@@ -99,6 +104,7 @@ namespace Orthomania.Patcher.Flow
 
             Settings = loadSettings();
             State = loadState();
+            Found = loadFound();
         }
 
         /// <summary>
@@ -137,12 +143,11 @@ namespace Orthomania.Patcher.Flow
 
         private async Task checkAsync(CancellationToken cancellationToken)
         {
-            Install = findLazer(Settings.ResolveLazerFolder());
+            Install = await locateLazerAsync(cancellationToken).ConfigureAwait(false);
 
             if (Install == null)
             {
-                log.Add($"no lazer at {Settings.ResolveLazerFolder() ?? LazerInstall.DefaultRoot}");
-                setStatus(new PatcherStatus(PatcherStage.NotInstalled, "Hi!", "osu!(lazer) is not installed."));
+                setStatus(new PatcherStatus(PatcherStage.NotInstalled, "Hi!", notInstalledDetail()));
                 return;
             }
 
@@ -463,6 +468,127 @@ namespace Orthomania.Patcher.Flow
             }
         }
 
+        /// <summary>
+        /// The osu! installs found so far: by the last search, and chosen by hand.
+        /// </summary>
+        public FoundInstalls Found { get; private set; } = new FoundInstalls();
+
+        /// <summary>
+        /// The lazer folder the person chose, or null when the patcher finds lazer by itself.
+        /// </summary>
+        public string? ChosenLazerFolder => Settings.ResolveLazerFolder();
+
+        /// <summary>
+        /// Lazer where the person chose; else where its installer puts it; else where it was found before; else wherever a search of
+        /// this computer finds it, the newest release first.
+        /// </summary>
+        private async Task<LazerInstall?> locateLazerAsync(CancellationToken cancellationToken)
+        {
+            string? chosen = Settings.ResolveLazerFolder();
+
+            if (chosen != null)
+            {
+                var there = findLazer(chosen);
+                if (there == null)
+                    log.Add($"no lazer at {chosen}, the folder chosen in settings.json");
+                return there;
+            }
+
+            var installed = findLazer(null);
+            if (installed != null)
+                return installed;
+
+            foreach (var earlier in Found.Installs.Where(i => i.Kind == OsuKind.Lazer).ToList())
+            {
+                var again = findLazer(earlier.Folder);
+
+                if (again != null)
+                {
+                    log.Add($"lazer is not at {LazerInstall.DefaultRoot}; using {again.Root}, found before");
+                    return again;
+                }
+            }
+
+            log.Add($"lazer is not at {LazerInstall.DefaultRoot}; searching this computer");
+            setStatus(new PatcherStatus(PatcherStage.Starting, "Hi!", "looking for osu! on this computer..."));
+
+            await SearchAsync(cancellationToken).ConfigureAwait(false);
+
+            foreach (var found in Found.Installs.Where(i => i.Kind == OsuKind.Lazer))
+            {
+                var install = findLazer(found.Folder);
+                if (install != null)
+                    return install;
+            }
+
+            return null;
+        }
+
+        private string notInstalledDetail()
+        {
+            string? chosen = Settings.ResolveLazerFolder();
+
+            if (chosen != null)
+                return $"osu!(lazer) is not in {chosen}. Install it, or choose where it is.";
+
+            var stable = Found.Installs.FirstOrDefault(i => i.Kind == OsuKind.Stable);
+
+            if (stable != null)
+                return $"Found osu!(stable) at {stable.Folder}, but orthomania runs on osu!(lazer), which is not installed.";
+
+            return "osu!(lazer) is not installed.";
+        }
+
+        /// <summary>
+        /// Searches this computer for osu! (lazer and stable), and remembers what it found.
+        /// </summary>
+        public async Task<IReadOnlyList<OsuInstall>> SearchAsync(CancellationToken cancellationToken)
+        {
+            var found = await Task.Run(() => installFinder.Find(cancellationToken), cancellationToken).ConfigureAwait(false);
+
+            // Folders chosen by hand stay remembered even when the search did not reach them.
+            var chosenByHand = Found.Installs.Where(i => !found.Any(f => f.Folder.Equals(i.Folder, PathUtils.Comparison)) && OsuInstall.Identify(i.Folder) != null);
+
+            Found = new FoundInstalls
+            {
+                SearchedUtc = DateTime.UtcNow,
+                Installs = found.Concat(chosenByHand).ToList(),
+            };
+
+            saveFound();
+            return Found.Installs;
+        }
+
+        /// <summary>
+        /// Uses the osu! at <paramref name="path"/> (a folder, or a file in it): lazer becomes the one orthomania runs on (saved in
+        /// <c>settings.json</c>); stable is remembered. Check again afterwards.
+        /// </summary>
+        public FolderChoice ChooseFolder(string path)
+        {
+            var install = OsuInstall.Identify(path);
+
+            if (install == null)
+            {
+                log.Add($"chosen folder {path} has no osu!");
+                return new FolderChoice(null, $"There is no osu! in {path}. Choose the folder with osu!.exe in it.");
+            }
+
+            Found.Remember(install);
+            saveFound();
+
+            if (install.Kind == OsuKind.Stable)
+            {
+                log.Add($"chosen folder: {install}");
+                return new FolderChoice(install, $"That is osu!(stable). orthomania runs on osu!(lazer), so it needs lazer's folder too.");
+            }
+
+            Settings.LazerFolder = install.Folder;
+            JsonFile.Write(layout.SettingsFile, Settings);
+            log.Add($"chosen lazer: {install}");
+
+            return new FolderChoice(install, $"orthomania now uses {install}.");
+        }
+
         public bool DevServerEnabled => Settings.DevServer?.Enabled == true;
 
         /// <summary>
@@ -533,6 +659,26 @@ namespace Orthomania.Patcher.Flow
             if (problem != null)
                 log.Add(problem);
             return state;
+        }
+
+        private FoundInstalls loadFound()
+        {
+            var found = JsonFile.ReadOrDefault<FoundInstalls>(layout.FoundInstallsFile, out string? problem);
+            if (problem != null)
+                log.Add(problem);
+            return found;
+        }
+
+        private void saveFound()
+        {
+            try
+            {
+                JsonFile.Write(layout.FoundInstallsFile, Found);
+            }
+            catch (IOException e)
+            {
+                log.Add($"could not save the installs found: {e.Message}");
+            }
         }
 
         private void saveState()
