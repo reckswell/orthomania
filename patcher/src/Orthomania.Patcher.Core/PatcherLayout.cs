@@ -16,6 +16,7 @@ namespace Orthomania.Patcher
     /// server\                     the score server's data, when the patcher starts it (development only)
     /// settings.json               what the person chose
     /// state.json                  what the patcher remembers between launches
+    /// found-installs.json         the osu! installs the last search found
     /// </code>
     /// It sits in <c>%LOCALAPPDATA%</c> because hard links only work on the drive lazer's install is on, which is the same
     /// folder, and because OneDrive never syncs it.
@@ -48,6 +49,8 @@ namespace Orthomania.Patcher
         public string SettingsFile => Path.Combine(Root, "settings.json");
 
         public string StateFile => Path.Combine(Root, "state.json");
+
+        public string FoundInstallsFile => Path.Combine(Root, "found-installs.json");
 
         public BuildStore CreateBuildStore() => new BuildStore(Builds);
 

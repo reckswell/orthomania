@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,6 +12,7 @@ using osu.Framework.Graphics.Shapes;
 using osu.Framework.Platform;
 using Orthomania.Patcher.Flow;
 using Orthomania.Patcher.Graphics;
+using Orthomania.Patcher.Installs;
 using Orthomania.Patcher.Launch;
 using Orthomania.Patcher.Lazer;
 using Orthomania.Patcher.Releases;
@@ -23,7 +25,7 @@ namespace Orthomania.Patcher
     /// <summary>
     /// The patcher's window: runs <see cref="PatcherFlow"/> and shows where it is.
     /// </summary>
-    public partial class PatcherGame : osu.Framework.Game, IPatcherActions, IOptionsActions
+    public partial class PatcherGame : osu.Framework.Game, IPatcherActions, IOptionsActions, IInstallsActions
     {
         public const int WIDTH = 460;
         public const int HEIGHT = 440;
@@ -39,6 +41,7 @@ namespace Orthomania.Patcher
 
         private MainView main = null!;
         private OptionsView optionsView = null!;
+        private InstallsView installsView = null!;
         private Task? work;
 
         private static Version patcherVersion => Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 1, 0);
@@ -91,6 +94,7 @@ namespace Orthomania.Patcher
                 },
                 main = new MainView(this, seed),
                 optionsView = new OptionsView(this),
+                installsView = new InstallsView(this),
             };
         }
 
@@ -131,6 +135,7 @@ namespace Orthomania.Patcher
             main.Show(new PatcherView(flow.Status, flow.Notices, flow.Target?.Record.Lazer));
             optionsView.SetInfo(describe());
             optionsView.SetDevServer(flow.DevServerEnabled);
+            installsView.SetInstalls(flow.Found.Installs, flow.Install?.Root);
 
             if (flow.Status.Stage == PatcherStage.Running)
                 Window?.Hide();
@@ -144,6 +149,9 @@ namespace Orthomania.Patcher
                 return string.Empty;
 
             string lazer = flow.Install != null ? $"osu! {flow.Install.ReadReleaseSafely()} at {flow.Install.Root}" : "osu!(lazer) not found";
+
+            if (flow.Install != null && flow.ChosenLazerFolder != null)
+                lazer += " (chosen)";
             return $"{lazer}\ndata: {flow.DataFolder}\npatcher {patcherVersion.ToString(3)}";
         }
 
@@ -184,8 +192,102 @@ namespace Orthomania.Patcher
         public void CheckAgain()
         {
             optionsView.Hide();
+            installsView.Hide();
             run(token => flow!.CheckAsync(token));
         }
+
+        public void ShowInstalls()
+        {
+            if (flow != null)
+            {
+                installsView.SetInstalls(flow.Found.Installs, flow.Install?.Root);
+                installsView.SetMessage(flow.Found.SearchedUtc is DateTime searched
+                    ? $"Last searched {searched.ToLocalTime():d MMM, HH:mm}. Pick the osu!(lazer) orthomania runs on."
+                    : "Pick the osu!(lazer) orthomania runs on, or search this computer.");
+            }
+
+            optionsView.Hide();
+            installsView.Show();
+        }
+
+        public void HideInstalls() => installsView.Hide();
+
+        public void UseInstall(OsuInstall install)
+        {
+            if (flow == null || busy)
+                return;
+
+            var choice = flow.ChooseFolder(install.Folder);
+            installsView.SetMessage(choice.Message);
+
+            if (choice.Install?.Kind == OsuKind.Lazer)
+                CheckAgain();
+        }
+
+        public void ChooseFolder()
+        {
+            if (flow == null || busy)
+                return;
+
+            string startIn = flow.Install?.Root ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
+            FolderPicker.Show(Host, startIn, path => Schedule(() =>
+            {
+                if (path == null || busy)
+                    return;
+
+                var choice = flow.ChooseFolder(path);
+                installsView.SetMessage(choice.Message);
+                installsView.SetInstalls(flow.Found.Installs, flow.Install?.Root);
+
+                if (choice.Install?.Kind == OsuKind.Lazer)
+                    CheckAgain();
+            }), error => Schedule(() =>
+            {
+                log.Add($"folder picker: {error}");
+                installsView.SetMessage($"The folder picker did not open ({error}). Set lazerFolder in {layout.SettingsFile} instead.");
+            }));
+        }
+
+        public void SearchAgain()
+        {
+            if (flow == null || busy)
+                return;
+
+            installsView.SetSearching(true);
+            installsView.SetMessage("Searching this computer for osu!...");
+
+            run(async token =>
+            {
+                try
+                {
+                    var found = await flow.SearchAsync(token).ConfigureAwait(false);
+                    int lazer = found.Count(i => i.Kind == OsuKind.Lazer);
+                    int stable = found.Count - lazer;
+
+                    Schedule(() =>
+                    {
+                        installsView.SetMessage($"Found {plural(lazer, "osu!(lazer)", "osu!(lazer) installs")} and {plural(stable, "osu!(stable)", "osu!(stable) installs")}.");
+                        installsView.SetInstalls(found, flow.Install?.Root);
+                    });
+
+                    // Nothing was found before: use what was found now.
+                    if (flow.Install == null && lazer > 0)
+                        await flow.CheckAsync(token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    Schedule(() => installsView.SetSearching(false));
+                }
+            });
+        }
+
+        private static string plural(int count, string one, string many) => count switch
+        {
+            0 => $"no {one}",
+            1 => $"1 {one}",
+            _ => $"{count} {many}",
+        };
 
         public void InstallLazer() => Host.OpenUrlExternally(LAZER_DOWNLOAD);
 
@@ -293,7 +395,8 @@ namespace Orthomania.Patcher
                     break;
 
                 case "notinstalled":
-                    status = new PatcherStatus(PatcherStage.NotInstalled, "Hi!", "osu!(lazer) is not installed.");
+                    status = new PatcherStatus(PatcherStage.NotInstalled, "Hi!",
+                        "Found osu!(stable) at D:\\osu!, but orthomania runs on osu!(lazer), which is not installed.");
                     break;
 
                 case "problem":
@@ -313,6 +416,18 @@ namespace Orthomania.Patcher
             }
 
             main.Show(new PatcherView(status, notices, fallback));
+
+            if (state == "installs")
+            {
+                installsView.SetInstalls(new[]
+                {
+                    new OsuInstall(OsuKind.Lazer, "C:\\Users\\Alpha\\AppData\\Local\\osulazer", "2026.1105.0"),
+                    new OsuInstall(OsuKind.Lazer, "D:\\Games\\osulazer", "2026.1026.0"),
+                    new OsuInstall(OsuKind.Stable, "D:\\osu!", "20251102.3"),
+                }, "C:\\Users\\Alpha\\AppData\\Local\\osulazer");
+                installsView.SetMessage("Found 2 osu!(lazer) installs and 1 osu!(stable).");
+                installsView.Show();
+            }
 
             if (state == "options")
             {
