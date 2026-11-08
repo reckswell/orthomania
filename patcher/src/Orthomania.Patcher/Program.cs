@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using osu.Framework;
 using osu.Framework.Platform;
 
@@ -12,6 +13,10 @@ namespace Orthomania.Patcher
             var options = PatcherOptions.Parse(args);
             bool demo = options.Demo != null;
 
+            // Started by the patcher this one replaced: it holds the one-patcher lock until it has closed.
+            if (options.After is int previous)
+                waitForExit(previous);
+
             using GameHost host = Host.GetSuitableDesktopHost("orthomania-patcher", new HostOptions
             {
                 FriendlyGameName = "orthomania",
@@ -24,6 +29,19 @@ namespace Orthomania.Patcher
 
             host.Run(new PatcherGame(options));
             return 0;
+        }
+
+        private static void waitForExit(int pid)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                process.WaitForExit(TimeSpan.FromSeconds(30));
+            }
+            catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                // Already closed.
+            }
         }
     }
 }

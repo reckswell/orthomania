@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -46,6 +48,22 @@ namespace Orthomania.Patcher
 
         private static Version patcherVersion => Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 1, 0);
 
+        /// <summary>
+        /// Published by the patcher release workflow (<c>-p:OrthomaniaRelease=true</c>), as opposed to built from a clone: only a release
+        /// replaces itself with a newer patcher, so a build being worked on is never swapped for a published one.
+        /// </summary>
+        public static bool IsRelease => Assembly.GetEntryAssembly()?.GetCustomAttributes<AssemblyMetadataAttribute>()
+                                                .Any(a => a.Key == "OrthomaniaRelease" && a.Value == "true") == true;
+
+        /// <summary>
+        /// The running orthomania.exe, when it is a release that may update itself.
+        /// </summary>
+        private static PatcherExecutable? releasedExecutable
+            => IsRelease && OperatingSystem.IsWindows() && Environment.ProcessPath is string path
+               && Path.GetFileName(path).Equals(GitHubReleaseFeed.PATCHER_ASSET, StringComparison.OrdinalIgnoreCase)
+                ? new PatcherExecutable(path)
+                : null;
+
         public PatcherGame(PatcherOptions options)
         {
             this.options = options;
@@ -73,9 +91,11 @@ namespace Orthomania.Patcher
             if (options.Demo == null)
             {
                 var http = GitHubReleaseFeed.CreateHttpClient(patcherVersion);
+                var self = releasedExecutable;
+                self?.CleanUp(log.Add);
 
                 flow = new PatcherFlow(layout, new VelopackLazerUpdater(log.Add), new GitHubReleaseFeed(http, settings.ReleaseRepository), new ProcessGameRunner(), log,
-                    patcherVersion, devServer: new DevServerRunner(log.Add, Path.Combine(layout.Logs, "server.log"), layout.ServerData));
+                    patcherVersion, devServer: new DevServerRunner(log.Add, Path.Combine(layout.Logs, "server.log"), layout.ServerData), self: self);
             }
 
             int? seed = options.Demo != null ? 7 : null;
@@ -167,6 +187,10 @@ namespace Orthomania.Patcher
                 try
                 {
                     await action(exiting.Token).ConfigureAwait(false);
+
+                    // This patcher was replaced by a newer one, which carries on from here.
+                    if (flow.Status.Stage == PatcherStage.RestartingPatcher)
+                        Schedule(restartPatcher);
                 }
                 catch (OperationCanceledException)
                 {
@@ -182,12 +206,42 @@ namespace Orthomania.Patcher
         {
             int exitCode = await flow!.LaunchAsync(token).ConfigureAwait(false);
 
-            // The game ran (or failed to start, which leaves a problem on screen to read).
-            if (flow.Status.Stage != PatcherStage.Problem)
+            // The game ran (or failed to start, which leaves a problem on screen to read). A patcher that updated itself first restarts.
+            if (flow.Status.Stage is not (PatcherStage.Problem or PatcherStage.RestartingPatcher))
                 Schedule(Exit);
             else
                 log.Add($"launch ended with {exitCode}");
         });
+
+        /// <summary>
+        /// Starts the newer orthomania.exe now in this one's place, which waits for this one to close (only one patcher runs at a time).
+        /// </summary>
+        private void restartPatcher()
+        {
+            string path = flow!.UpdatedPatcher!;
+
+            try
+            {
+                var start = new ProcessStartInfo(path)
+                {
+                    UseShellExecute = false,
+                    WorkingDirectory = Path.GetDirectoryName(path)!,
+                };
+
+                start.ArgumentList.Add(PatcherOptions.AFTER);
+                start.ArgumentList.Add(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+                Process.Start(start)?.Dispose();
+                log.Add($"started {path}; closing");
+                Exit();
+            }
+            catch (Exception e) when (e is Win32Exception or IOException or InvalidOperationException)
+            {
+                log.Add($"could not start the updated patcher: {e.Message}");
+                main.Show(new PatcherView(new PatcherStatus(PatcherStage.Problem, "Oops",
+                    $"orthomania was updated, but the new one did not start ({e.Message}). Open orthomania again."), flow.Notices));
+            }
+        }
 
         public void CheckAgain()
         {

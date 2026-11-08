@@ -128,8 +128,8 @@ namespace Orthomania.Patcher.Screens
             title.Text = status.Title;
             detail.Text = status.Detail;
 
-            bool busy = status.Stage is PatcherStage.Starting or PatcherStage.WaitingForGame or PatcherStage.UpdatingLazer or PatcherStage.GettingOrthomania
-                or PatcherStage.Preparing;
+            bool busy = status.Stage is PatcherStage.Starting or PatcherStage.WaitingForGame or PatcherStage.UpdatingLazer or PatcherStage.UpdatingPatcher
+                or PatcherStage.RestartingPatcher or PatcherStage.GettingOrthomania or PatcherStage.Preparing;
 
             logo.Busy = busy;
 

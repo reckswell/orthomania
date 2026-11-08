@@ -2,8 +2,8 @@
 rem One click to start orthomania from this clone: builds the patcher as one file, orthomania.exe, and the score server it
 rem can start for development, then opens the patcher. Every run builds first, so it always runs this clone's code: the first
 rem run takes a minute or two, later runs only rebuild what changed (a few seconds when nothing did). Needs the .NET 10 SDK.
-rem The build goes to artifacts\launch (never committed). orthomania.exe there is the file to release: the .NET runtime and
-rem everything else it needs are inside it, so players need nothing else.
+rem The build goes to artifacts\launch (never committed). It is one file with the .NET runtime and everything else inside, but
+rem it is not a release: releases come from the "Patcher release" workflow, which marks them so they update themselves.
 setlocal
 cd /d "%~dp0"
 set "OUT=%~dp0artifacts\launch"

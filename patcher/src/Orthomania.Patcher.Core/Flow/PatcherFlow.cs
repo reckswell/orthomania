@@ -19,11 +19,14 @@ namespace Orthomania.Patcher.Flow
     /// What one launch of the patcher does, in order:
     /// <list type="number">
     /// <item>find official lazer, and check orthomania's folders and data are apart from osu!'s;</item>
+    /// <item>a released patcher replaces itself with a newer published one, and starts again;</item>
     /// <item>wait until no lazer is running;</item>
     /// <item>update lazer with its own updater, if a newer release is out;</item>
-    /// <item>get the newest orthomania build made for exactly the installed release;</item>
+    /// <item>get the newest orthomania build made for exactly the installed release, and check its DLLs against that osu!'s files
+    /// (<see cref="OsuCompatibility"/>): the newest build that fits is used;</item>
     /// <item>prepare the version folder for that pair, and wait on <see cref="PatcherStage.Ready"/>;</item>
-    /// <item>on Launch: start osu! from the folder.</item>
+    /// <item>on Launch: check again first when the last check is <see cref="RECHECK_AFTER"/> old, check the folder (its files and
+    /// that orthomania's DLLs fit the osu! files beside them), then start osu! from it.</item>
     /// </list>
     /// osu! started this way keeps its data where plain osu! does, so both see the same maps, skins, scores and settings. Only one
     /// release ever opens that data, the installed one, so with no build for it yet orthomania does not start: an older release could
@@ -37,6 +40,18 @@ namespace Orthomania.Patcher.Flow
         /// </summary>
         public static readonly TimeSpan WORKED_AFTER = TimeSpan.FromSeconds(20);
 
+        /// <summary>
+        /// A patcher left open this long checks for updates again when Launch is pressed, so it starts the newest build there is.
+        /// </summary>
+        public static readonly TimeSpan RECHECK_AFTER = TimeSpan.FromMinutes(10);
+
+        /// <summary>
+        /// The time now, in UTC; tests set it.
+        /// </summary>
+        public Func<DateTime> Clock { get; set; } = () => DateTime.UtcNow;
+
+        private DateTime? readyAt;
+
         private readonly PatcherLayout layout;
         private readonly ILazerUpdater lazerUpdater;
         private readonly IReleaseFeed feed;
@@ -49,6 +64,7 @@ namespace Orthomania.Patcher.Flow
         private readonly IReadOnlyList<string> osuData;
         private readonly IDevServerRunner? devServer;
         private readonly IInstallFinder installFinder;
+        private readonly PatcherExecutable? self;
 
         public PatcherSettings Settings { get; private set; }
 
@@ -79,16 +95,23 @@ namespace Orthomania.Patcher.Flow
         /// </summary>
         public PublishedPatcher? NewerPatcher { get; private set; }
 
+        /// <summary>
+        /// The patcher to start in place of this one, on <see cref="PatcherStage.RestartingPatcher"/>.
+        /// </summary>
+        public string? UpdatedPatcher { get; private set; }
+
         public string DataFolder => Settings.ResolveDataFolder();
 
         /// <param name="osuData">Where osu! keeps its data, for checking orthomania's is elsewhere (paths only; never opened).</param>
         /// <param name="devServer">Starts the score server with the game when <see cref="PatcherSettings.DevServer"/> says so (development only).</param>
         /// <param name="installFinder">Searches this computer for osu! when lazer is not where its installer puts it.</param>
+        /// <param name="self">The running orthomania.exe, when this is a released patcher that may replace itself with a newer one.</param>
         public PatcherFlow(PatcherLayout layout, ILazerUpdater lazerUpdater, IReleaseFeed feed, IGameRunner runner, PatcherLog log, Version patcherVersion,
                            Func<string?, LazerInstall?>? findLazer = null, IReadOnlyList<string>? osuData = null, IDevServerRunner? devServer = null,
-                           IInstallFinder? installFinder = null)
+                           IInstallFinder? installFinder = null, PatcherExecutable? self = null)
         {
             this.devServer = devServer;
+            this.self = self;
             this.installFinder = installFinder ?? new InstallFinder(new InstallPlaces(), log.Add);
             this.layout = layout;
             this.lazerUpdater = lazerUpdater;
@@ -114,6 +137,8 @@ namespace Orthomania.Patcher.Flow
         public async Task CheckAsync(CancellationToken cancellationToken)
         {
             Target = null;
+            readyAt = null;
+            NewerPatcher = null;
             notices.Clear();
             Settings = loadSettings();
             State = loadState();
@@ -166,6 +191,10 @@ namespace Orthomania.Patcher.Flow
 
             layout.CreateFolders();
 
+            // A newer patcher does everything below itself, so it goes first.
+            if (await checkPatcherAsync(cancellationToken).ConfigureAwait(false))
+                return;
+
             await waitForGameToCloseAsync(cancellationToken).ConfigureAwait(false);
 
             if (Settings.UpdateLazer)
@@ -175,12 +204,13 @@ namespace Orthomania.Patcher.Flow
 
             var build = await getBuildAsync(release.Version, cancellationToken).ConfigureAwait(false);
 
-            await checkPatcherAsync(cancellationToken).ConfigureAwait(false);
-
             if (build == null)
             {
-                log.Add($"no build for {release.Version.Number}");
-                problem($"orthomania for osu! {release.Version.Number} is not out yet. Plain osu! works as usual; try again later.");
+                log.Add($"no build for {release.Version.Number} that fits");
+
+                problem(unfit != null
+                    ? $"{unfit} Plain osu! works as usual; try again later."
+                    : $"orthomania for osu! {release.Version.Number} is not out yet. Plain osu! works as usual; try again later.");
                 return;
             }
 
@@ -193,6 +223,7 @@ namespace Orthomania.Patcher.Flow
 
             Target = folder;
             prune(folder);
+            readyAt = Clock();
 
             log.Add($"ready: {folder}");
             setStatus(new PatcherStatus(PatcherStage.Ready, "Ready", $"osu! {folder.Record.Lazer} with orthomania {folder.Record.Build}"));
@@ -257,6 +288,15 @@ namespace Orthomania.Patcher.Flow
             }
         }
 
+        /// <summary>
+        /// Why the newest build on disk could not be used with the installed osu!, when none could.
+        /// </summary>
+        private string? unfit;
+
+        /// <summary>
+        /// Downloads the newest build published for <paramref name="lazer"/> when it is newer than any on disk, then picks the newest build
+        /// on disk that is whole and fits the installed osu!.
+        /// </summary>
         private async Task<RulesetBuild?> getBuildAsync(LazerVersion lazer, CancellationToken cancellationToken)
         {
             setStatus(new PatcherStatus(PatcherStage.GettingOrthomania, "Getting orthomania", $"built for osu! {lazer.Number}"));
@@ -268,38 +308,11 @@ namespace Orthomania.Patcher.Flow
                 var published = await feed.FindBuildAsync(lazer, cancellationToken).ConfigureAwait(false);
 
                 if (published == null)
-                {
                     log.Add($"no orthomania build published for {lazer.Number}");
-                    return have;
-                }
-
-                if (have != null && RulesetBuild.CompareBuilds(have.Build, published.Build) >= 0)
-                {
+                else if (have != null && RulesetBuild.CompareBuilds(have.Build, published.Build) >= 0)
                     log.Add($"have {have}, published {published}");
-                    return have;
-                }
-
-                log.Add($"downloading {published}");
-
-                string staging = Path.Combine(layout.Downloads, $"{published.Lazer.Number}-{published.Build}");
-
-                if (Directory.Exists(staging))
-                    Directory.Delete(staging, recursive: true);
-
-                await feed.DownloadAsync(published, staging, p => setStatus(new PatcherStatus(PatcherStage.GettingOrthomania, "Getting orthomania",
-                    $"built for osu! {lazer.Number}", p)), cancellationToken).ConfigureAwait(false);
-
-                try
-                {
-                    var added = builds.Add(staging);
-                    log.Add($"added {added}");
-                    return added;
-                }
-                finally
-                {
-                    if (Directory.Exists(staging))
-                        Directory.Delete(staging, recursive: true);
-                }
+                else
+                    await downloadAsync(published, lazer, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception e) when (e is ReleaseFeedException or InvalidDataException)
             {
@@ -308,28 +321,135 @@ namespace Orthomania.Patcher.Flow
                 addNotice(have != null
                     ? $"Could not get a newer orthomania ({e.Message}). Using {have.Build}."
                     : $"Could not get orthomania for osu! {lazer.Number} ({e.Message}).");
+            }
 
-                return have;
+            return newestThatFits(lazer);
+        }
+
+        private async Task downloadAsync(PublishedBuild published, LazerVersion lazer, CancellationToken cancellationToken)
+        {
+            log.Add($"downloading {published}");
+
+            string staging = Path.Combine(layout.Downloads, $"{published.Lazer.Number}-{published.Build}");
+
+            if (Directory.Exists(staging))
+                Directory.Delete(staging, recursive: true);
+
+            await feed.DownloadAsync(published, staging, p => setStatus(new PatcherStatus(PatcherStage.GettingOrthomania, "Getting orthomania",
+                $"built for osu! {lazer.Number}", p)), cancellationToken).ConfigureAwait(false);
+
+            try
+            {
+                var added = builds.Add(staging);
+                log.Add($"added {added}");
+            }
+            finally
+            {
+                if (Directory.Exists(staging))
+                    Directory.Delete(staging, recursive: true);
             }
         }
 
-        private async Task checkPatcherAsync(CancellationToken cancellationToken)
+        /// <summary>
+        /// The newest whole build for <paramref name="lazer"/> whose DLLs fit the installed osu!'s files. A newer one that does not fit
+        /// is passed over, and the person is told.
+        /// </summary>
+        private RulesetBuild? newestThatFits(LazerVersion lazer)
         {
+            setStatus(new PatcherStatus(PatcherStage.GettingOrthomania, "Getting orthomania", $"checking it against osu! {lazer.Number}"));
+
+            unfit = null;
+
+            var candidates = builds.All(lazer).Where(b => b.Verify(out _)).OrderByDescending(b => b.Build, Comparer<string>.Create(RulesetBuild.CompareBuilds));
+
+            foreach (var build in candidates)
+            {
+                if (OsuCompatibility.Check(build, Install!.Current, out string? problem))
+                {
+                    log.Add($"{build} fits osu! {lazer.Number}");
+
+                    if (unfit != null)
+                        addNotice($"{unfit} Using orthomania {build.Build}.");
+
+                    return build;
+                }
+
+                log.Add($"{build} does not fit the osu! at {Install.Current}: {problem}");
+                unfit ??= $"orthomania {build.Build} does not fit the installed osu! ({problem}).";
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Looks for a newer patcher. A released one replaces itself with it (checked against its published hash) and returns true, so
+        /// the newer one does the rest; any other only says it is out.
+        /// </summary>
+        private async Task<bool> checkPatcherAsync(CancellationToken cancellationToken)
+        {
+            PublishedPatcher? newest;
+
             try
             {
-                var newest = await feed.FindPatcherAsync(cancellationToken).ConfigureAwait(false);
-
-                if (newest != null && newest.Version > patcherVersion)
-                {
-                    NewerPatcher = newest;
-                    log.Add($"newer patcher: {newest.Version}");
-                    addNotice($"A newer orthomania patcher ({newest.Version.ToString(3)}) is out.");
-                }
+                newest = await feed.FindPatcherAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (ReleaseFeedException e)
             {
                 log.Add($"patcher check: {e.Message}");
+                return false;
             }
+
+            if (newest == null || newest.Version <= patcherVersion)
+                return false;
+
+            NewerPatcher = newest;
+            string version = newest.Version.ToString(3);
+            log.Add($"newer patcher: {newest.Version}");
+
+            if (self == null || !Settings.UpdatePatcher || newest.Download == null)
+            {
+                if (self != null && newest.Download == null)
+                    log.Add($"{newest.Tag} has no {GitHubReleaseFeed.PATCHER_ASSET} with a published hash; not updating to it");
+
+                addNotice($"A newer orthomania patcher ({version}) is out.");
+                return false;
+            }
+
+            setStatus(new PatcherStatus(PatcherStage.UpdatingPatcher, "Updating orthomania", $"to {version}", 0));
+
+            try
+            {
+                await feed.DownloadPatcherAsync(newest.Download, self.DownloadPath, p => setStatus(Status with { Progress = p }), cancellationToken)
+                          .ConfigureAwait(false);
+
+                if (!Hashing.Matches(self.DownloadPath, newest.Download.Sha256, newest.Download.Size))
+                    throw new InvalidDataException("the download does not match its published hash");
+
+                self.Replace(self.DownloadPath);
+            }
+            catch (Exception e) when (e is ReleaseFeedException or InvalidDataException or IOException or UnauthorizedAccessException)
+            {
+                log.Add($"patcher update to {version}: {e.Message}");
+
+                try
+                {
+                    if (File.Exists(self.DownloadPath))
+                        File.Delete(self.DownloadPath);
+                }
+                catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
+                {
+                    log.Add($"could not remove the download: {cleanup.Message}");
+                }
+
+                addNotice($"A newer orthomania patcher ({version}) is out, but it could not be put in place ({e.Message}).");
+                setStatus(PatcherStatus.Starting);
+                return false;
+            }
+
+            UpdatedPatcher = self.Path;
+            log.Add($"patcher updated to {version}; starting it");
+            setStatus(new PatcherStatus(PatcherStage.RestartingPatcher, "Updating orthomania", $"starting orthomania {version}..."));
+            return true;
         }
 
         /// <summary>
@@ -397,6 +517,15 @@ namespace Orthomania.Patcher.Flow
         /// </summary>
         public async Task<int> LaunchAsync(CancellationToken cancellationToken)
         {
+            if (Target != null && readyAt is DateTime checkedAt && Clock() - checkedAt >= RECHECK_AFTER)
+            {
+                log.Add($"last checked at {checkedAt:HH:mm} UTC; checking for updates again before starting");
+                await CheckAsync(cancellationToken).ConfigureAwait(false);
+
+                if (Status.Stage != PatcherStage.Ready)
+                    return -1;
+            }
+
             var target = Target ?? throw new InvalidOperationException("Nothing to launch; run the checks first.");
 
             await waitForGameToCloseAsync(cancellationToken).ConfigureAwait(false);

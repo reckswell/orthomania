@@ -2,6 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text;
 using Orthomania.Patcher.Lazer;
 using Orthomania.Patcher.Releases;
@@ -92,7 +96,9 @@ namespace Orthomania.Patcher.Tests
         /// <summary>
         /// An orthomania build folder for <paramref name="lazer"/>, with its manifest and files.
         /// </summary>
-        public static string Build(string folder, string lazer = "2026.1026.0", string build = "0.1.0", Dictionary<string, string>? files = null)
+        /// <param name="references">The assemblies the ruleset DLL needs; none by default.</param>
+        public static string Build(string folder, string lazer = "2026.1026.0", string build = "0.1.0", Dictionary<string, string>? files = null,
+                                   params (string Name, Version Version)[] references)
         {
             Directory.CreateDirectory(folder);
 
@@ -107,12 +113,69 @@ namespace Orthomania.Patcher.Tests
             foreach (var (name, content) in files)
             {
                 string path = System.IO.Path.Combine(folder, name);
-                File.WriteAllText(path, content, new UTF8Encoding(false));
+
+                // A DLL is a real (empty) assembly, as orthomania checks its DLLs against osu!'s; the content is its marker.
+                if (name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                {
+                    string assembly = System.IO.Path.GetFileNameWithoutExtension(name);
+                    Assembly(path, assembly, content, null, assembly.StartsWith("osu.Game.Rulesets.", StringComparison.Ordinal) ? references : Array.Empty<(string, Version)>());
+                }
+                else
+                    File.WriteAllText(path, content, new UTF8Encoding(false));
+
                 manifest.Files.Add(new ManifestFile { Name = name, Sha256 = Hashing.Sha256OfFile(path), Size = new FileInfo(path).Length });
             }
 
             File.WriteAllText(System.IO.Path.Combine(folder, ReleaseManifest.FILE_NAME), manifest.Serialise());
             return folder;
+        }
+
+        /// <summary>
+        /// Writes a .NET assembly named <paramref name="name"/> with nothing in it but <paramref name="marker"/> (as its module's name) and
+        /// the assembly references given, for checks that read assemblies' metadata.
+        /// </summary>
+        public static void Assembly(string path, string name, string marker, Version? version = null, params (string Name, Version Version)[] references)
+        {
+            var metadata = new MetadataBuilder();
+
+            metadata.AddModule(0, metadata.GetOrAddString(marker), metadata.GetOrAddGuid(Guid.NewGuid()), default, default);
+            metadata.AddAssembly(metadata.GetOrAddString(name), version ?? new Version(1, 0, 0, 0), default, default, default, AssemblyHashAlgorithm.Sha1);
+
+            foreach (var (referenceName, referenceVersion) in references)
+                metadata.AddAssemblyReference(metadata.GetOrAddString(referenceName), referenceVersion, default, default, default, default);
+
+            metadata.AddTypeDefinition(default, default, metadata.GetOrAddString("<Module>"), default, MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+            var image = new BlobBuilder();
+            new ManagedPEBuilder(PEHeaderBuilder.CreateLibraryHeader(), new MetadataRootBuilder(metadata), new BlobBuilder()).Serialize(image);
+
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, image.ToArray());
+        }
+
+        /// <summary>
+        /// What a file made here holds: an assembly's marker, or a text file's text.
+        /// </summary>
+        public static string Read(string path)
+        {
+            using (var stream = File.OpenRead(path))
+            using (var pe = new PEReader(stream))
+            {
+                try
+                {
+                    if (pe.HasMetadata)
+                    {
+                        var reader = pe.GetMetadataReader();
+                        return reader.GetString(reader.GetModuleDefinition().Name);
+                    }
+                }
+                catch (BadImageFormatException)
+                {
+                }
+            }
+
+            return File.ReadAllText(path);
         }
     }
 }

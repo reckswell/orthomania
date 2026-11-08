@@ -64,8 +64,8 @@ namespace Orthomania.Patcher.Tests.Flow
 
         private void writeSettings(PatcherSettings settings) => JsonFile.Write(layout.SettingsFile, settings);
 
-        private PatcherFlow createFlow() => new PatcherFlow(layout, updater, feed, runner, log, new Version(0, 1, 0), root => LazerInstall.Find(root),
-            new[] { temp.Combine("appdata", "osu") }, devServer, finder);
+        private PatcherFlow createFlow(PatcherExecutable? self = null) => new PatcherFlow(layout, updater, feed, runner, log, new Version(0, 1, 0),
+            root => LazerInstall.Find(root), new[] { temp.Combine("appdata", "osu") }, devServer, finder, self);
 
         private async Task<PatcherFlow> checkAsync()
         {
@@ -210,7 +210,7 @@ namespace Orthomania.Patcher.Tests.Flow
             Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Ready), flow.Status.Detail);
             Assert.That(flow.Status.Detail, Is.EqualTo("osu! 2026.1026.0 with orthomania 0.1.0"));
             Assert.That(flow.Target!.Directory, Is.EqualTo(Path.Combine(layout.LazerFolders, "2026.1026.0")));
-            Assert.That(File.ReadAllText(Path.Combine(flow.Target.Directory, "osu.Game.Rulesets.ManiaOrtho.dll")), Is.EqualTo("ruleset 0.1.0 for 2026.1026.0"));
+            Assert.That(Fakes.Read(Path.Combine(flow.Target.Directory, "osu.Game.Rulesets.ManiaOrtho.dll")), Is.EqualTo("ruleset 0.1.0 for 2026.1026.0"));
 
             int exitCode = await flow.LaunchAsync(CancellationToken.None);
 
@@ -457,7 +457,7 @@ namespace Orthomania.Patcher.Tests.Flow
 
             Assert.That(flow.Target!.Directory, Is.EqualTo(first.Directory));
             Assert.That(flow.Target.Record.Build, Is.EqualTo("0.1.1"));
-            Assert.That(File.ReadAllText(Path.Combine(flow.Target.Directory, "osu.Game.Rulesets.ManiaOrtho.dll")), Is.EqualTo("ruleset 0.1.1 for 2026.1026.0"));
+            Assert.That(Fakes.Read(Path.Combine(flow.Target.Directory, "osu.Game.Rulesets.ManiaOrtho.dll")), Is.EqualTo("ruleset 0.1.1 for 2026.1026.0"));
             Assert.That(VersionFolders.Verify(flow.Target, out string? problem), Is.True, problem);
         }
 
@@ -522,6 +522,175 @@ namespace Orthomania.Patcher.Tests.Flow
 
             Assert.That(flow.NewerPatcher!.Version, Is.EqualTo(new Version(0, 2, 0)));
             Assert.That(flow.Notices.Single(), Does.Contain("0.2.0"));
+        }
+
+        private static readonly Version game_october = new Version(2026, 1026, 0, 0);
+        private static readonly Version game_november = new Version(2026, 1105, 0, 0);
+
+        /// <summary>
+        /// Gives the fake lazer a real osu.Game.dll for builds to be checked against.
+        /// </summary>
+        private void installGameAssembly() => Fakes.Assembly(Path.Combine(install.Current, "osu.Game.dll"), "osu.Game", "game", game_october);
+
+        [Test]
+        public async Task TestPassesOverANewerBuildThatDoesNotFitOsu()
+        {
+            installGameAssembly();
+            feed.Publish(october, "0.1.0", ("osu.Game", game_october));
+            await checkAsync();
+
+            // Published for october, but built against november's osu.Game.
+            feed.Publish(october, "0.1.1", ("osu.Game", game_november));
+            var flow = await checkAsync();
+
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Ready));
+            Assert.That(flow.Target!.Record.Build, Is.EqualTo("0.1.0"));
+            Assert.That(flow.Notices.Single(), Does.StartWith("orthomania 0.1.1 does not fit the installed osu!")
+                                                  .And.Contain("osu.Game 2026.1105.0.0")
+                                                  .And.EndWith("Using orthomania 0.1.0."));
+        }
+
+        [Test]
+        public async Task TestNoBuildThatFitsOsuIsAProblem()
+        {
+            installGameAssembly();
+            feed.Publish(october, "0.1.0", ("osu.Game", game_november));
+
+            var flow = await checkAsync();
+
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Problem));
+            Assert.That(flow.Status.Detail, Does.StartWith("orthomania 0.1.0 does not fit the installed osu!"));
+            Assert.That(flow.Target, Is.Null);
+            Assert.That(runner.Ran, Is.Empty);
+        }
+
+        [Test]
+        public async Task TestLaunchRefusesAFolderWhoseOsuFilesNoLongerFit()
+        {
+            var built = new Version(2026, 1019, 0, 0);
+            Fakes.Assembly(Path.Combine(install.Current, "osu.Framework.dll"), "osu.Framework", "framework", built);
+            feed.Publish(october, "0.1.0", ("osu.Framework", built));
+            var flow = await checkAsync();
+
+            // osu!'s framework beside orthomania is no longer the one the build was made for (same size, so only the check sees it).
+            string framework = Path.Combine(flow.Target!.Directory, "osu.Framework.dll");
+            File.Delete(framework);
+            Fakes.Assembly(framework, "osu.Framework", "framework", new Version(2026, 1105, 0, 0));
+
+            Assert.That(await flow.LaunchAsync(CancellationToken.None), Is.EqualTo(-1));
+            Assert.That(flow.Status.Detail, Does.Contain("orthomania does not fit its osu! files"));
+            Assert.That(runner.Ran, Is.Empty);
+        }
+
+        [Test]
+        public async Task TestLaunchChecksForUpdatesAgainAfterAWhile()
+        {
+            feed.Publish(october, "0.1.0");
+            var now = new DateTime(2026, 11, 8, 12, 0, 0, DateTimeKind.Utc);
+
+            var flow = createFlow();
+            flow.Clock = () => now;
+            await flow.CheckAsync(CancellationToken.None);
+
+            // A newer build comes out while the patcher sits on Ready.
+            feed.Publish(october, "0.1.1");
+            now += PatcherFlow.RECHECK_AFTER + TimeSpan.FromMinutes(1);
+
+            Assert.That(await flow.LaunchAsync(CancellationToken.None), Is.Zero);
+            Assert.That(flow.Target!.Record.Build, Is.EqualTo("0.1.1"));
+            Assert.That(Fakes.Read(Path.Combine(flow.Target.Directory, "osu.Game.Rulesets.ManiaOrtho.dll")), Is.EqualTo("ruleset 0.1.1 for 2026.1026.0"));
+            Assert.That(flow.State.LastWorking, Is.EqualTo(new PairRecord("2026.1026.0", "0.1.1")));
+        }
+
+        [Test]
+        public async Task TestLaunchSoonAfterTheCheckDoesNotCheckAgain()
+        {
+            feed.Publish(october, "0.1.0");
+            var now = new DateTime(2026, 11, 8, 12, 0, 0, DateTimeKind.Utc);
+
+            var flow = createFlow();
+            flow.Clock = () => now;
+            await flow.CheckAsync(CancellationToken.None);
+
+            feed.Publish(october, "0.1.1");
+            now += TimeSpan.FromMinutes(2);
+
+            Assert.That(await flow.LaunchAsync(CancellationToken.None), Is.Zero);
+            Assert.That(flow.State.LastWorking, Is.EqualTo(new PairRecord("2026.1026.0", "0.1.0")));
+        }
+
+        /// <summary>
+        /// A running "orthomania.exe" (0.1.0), and a published 0.2.0 with the given hash (the right one by default).
+        /// </summary>
+        private (PatcherExecutable Self, string Published) releasedPatcher(string? sha256 = null)
+        {
+            string exe = temp.Combine("app", "orthomania.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(exe)!);
+            File.WriteAllText(exe, "MZ orthomania 0.1.0");
+
+            string published = temp.Combine("published-patcher", "orthomania.exe");
+            Directory.CreateDirectory(Path.GetDirectoryName(published)!);
+            File.WriteAllText(published, "MZ orthomania 0.2.0");
+
+            feed.Patcher = new PublishedPatcher(new Version(0, 2, 0), "patcher-0.2.0", new Uri("https://github.com/Reckswell/orthomania/releases/tag/patcher-0.2.0"))
+            {
+                Download = new PatcherDownload(new Uri(published), new FileInfo(published).Length, sha256 ?? Hashing.Sha256OfFile(published)),
+            };
+
+            return (new PatcherExecutable(exe), published);
+        }
+
+        [Test]
+        public async Task TestAReleasedPatcherReplacesItselfFirst()
+        {
+            feed.Publish(october, "0.1.0");
+            var (self, _) = releasedPatcher();
+
+            var flow = createFlow(self);
+            await flow.CheckAsync(CancellationToken.None);
+
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.RestartingPatcher));
+            Assert.That(flow.UpdatedPatcher, Is.EqualTo(self.Path));
+            Assert.That(File.ReadAllText(self.Path), Is.EqualTo("MZ orthomania 0.2.0"));
+            Assert.That(File.ReadAllText(self.OldPath), Is.EqualTo("MZ orthomania 0.1.0"), "moved aside while it still runs");
+            Assert.That(File.Exists(self.DownloadPath), Is.False);
+            Assert.That(flow.Target, Is.Null, "the new patcher does the rest");
+            Assert.That(updater.Checks, Is.Zero);
+
+            // The new patcher, starting, removes the old one.
+            self.CleanUp(_ => { });
+            Assert.That(File.Exists(self.OldPath), Is.False);
+        }
+
+        [Test]
+        public async Task TestAPatcherNotMatchingItsHashIsNotUsed()
+        {
+            feed.Publish(october, "0.1.0");
+            var (self, _) = releasedPatcher(sha256: new string('0', 64));
+
+            var flow = createFlow(self);
+            await flow.CheckAsync(CancellationToken.None);
+
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Ready), "carries on with this patcher");
+            Assert.That(File.ReadAllText(self.Path), Is.EqualTo("MZ orthomania 0.1.0"));
+            Assert.That(File.Exists(self.OldPath), Is.False);
+            Assert.That(File.Exists(self.DownloadPath), Is.False);
+            Assert.That(flow.Notices.Single(), Does.Contain("could not be put in place").And.Contain("hash"));
+        }
+
+        [Test]
+        public async Task TestPatcherUpdatesCanBeTurnedOff()
+        {
+            writeSettings(new PatcherSettings { LazerFolder = install.Root, DataFolder = dataFolder, UpdatePatcher = false });
+            feed.Publish(october, "0.1.0");
+            var (self, _) = releasedPatcher();
+
+            var flow = createFlow(self);
+            await flow.CheckAsync(CancellationToken.None);
+
+            Assert.That(flow.Status.Stage, Is.EqualTo(PatcherStage.Ready));
+            Assert.That(File.ReadAllText(self.Path), Is.EqualTo("MZ orthomania 0.1.0"));
+            Assert.That(flow.Notices.Single(), Is.EqualTo("A newer orthomania patcher (0.2.0) is out."));
         }
 
         [Test]
@@ -653,10 +822,10 @@ namespace Orthomania.Patcher.Tests.Flow
                 this.root = root;
             }
 
-            public void Publish(LazerVersion lazer, string build)
+            public void Publish(LazerVersion lazer, string build, params (string Name, Version Version)[] references)
             {
                 string folder = Path.Combine(root, lazer.Number, build);
-                Fakes.Build(folder, lazer.Number, build);
+                Fakes.Build(folder, lazer.Number, build, null, references);
                 published[lazer] = build;
             }
 
@@ -689,6 +858,13 @@ namespace Orthomania.Patcher.Tests.Flow
 
             public Task<PublishedPatcher?> FindPatcherAsync(CancellationToken cancellationToken)
                 => Offline ? throw new ReleaseFeedException("offline") : Task.FromResult(Patcher);
+
+            public Task DownloadPatcherAsync(PatcherDownload download, string path, Action<double> progress, CancellationToken cancellationToken)
+            {
+                File.Copy(download.Uri.LocalPath, path, overwrite: true);
+                progress(1);
+                return Task.CompletedTask;
+            }
         }
 
         private sealed class FakeFinder : IInstallFinder

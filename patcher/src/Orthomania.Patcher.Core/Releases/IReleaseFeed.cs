@@ -27,6 +27,12 @@ namespace Orthomania.Patcher.Releases
         /// The newest patcher, or null when none is published.
         /// </summary>
         Task<PublishedPatcher?> FindPatcherAsync(CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Downloads a patcher to <paramref name="path"/>, no larger than it is published at. The caller checks its hash before using it.
+        /// </summary>
+        /// <param name="progress">From 0 to 1.</param>
+        Task DownloadPatcherAsync(PatcherDownload download, string path, Action<double> progress, CancellationToken cancellationToken);
     }
 
     /// <summary>
@@ -38,7 +44,20 @@ namespace Orthomania.Patcher.Releases
         public override string ToString() => $"orthomania {Build} for osu! {Lazer.Number}";
     }
 
-    public sealed record PublishedPatcher(Version Version, string Tag, Uri Page);
+    /// <summary>
+    /// A published patcher release.
+    /// </summary>
+    /// <param name="Page">Its release page, for reading or downloading by hand.</param>
+    public sealed record PublishedPatcher(Version Version, string Tag, Uri Page)
+    {
+        /// <summary>
+        /// Its <c>orthomania.exe</c>, when the release has one with a published hash; the patcher only updates itself to one of these.
+        /// </summary>
+        public PatcherDownload? Download { get; init; }
+    }
+
+    /// <param name="Sha256">Lowercase hex, as GitHub publishes it for the file.</param>
+    public sealed record PatcherDownload(Uri Uri, long Size, string Sha256);
 
     public class ReleaseFeedException : Exception
     {
