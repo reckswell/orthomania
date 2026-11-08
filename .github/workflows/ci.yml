@@ -69,11 +69,12 @@ jobs:
         env:
           ORTHOMANIA_BUILD_ONLY: "1"
         run: call launch.bat
-      - name: Both are where the patcher looks for them
+      - name: Both are where the patcher looks for them, and orthomania.exe is one file
         shell: cmd
         run: |
           if not exist artifacts\launch\orthomania.exe exit /b 1
           if not exist artifacts\launch\server\OrthoServer.exe exit /b 1
+          if exist artifacts\launch\*.dll exit /b 1
 
   publish:
     name: Publish the patcher (win-x64)
@@ -83,11 +84,28 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
-      - run: dotnet publish patcher/src/Orthomania.Patcher -c Release -r win-x64 --self-contained -o artifacts/patcher
+      # Published for win-x64, the patcher is one self-contained file (Orthomania.Patcher.csproj): the file a release carries.
+      - run: dotnet publish patcher/src/Orthomania.Patcher -c Release -r win-x64 -o artifacts/patcher
+      - name: orthomania.exe is the only file, and starts and draws its window on its own
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem artifacts/patcher)
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'orthomania.exe') { throw "expected only orthomania.exe, found: $($files.Name -join ', ')" }
+          "orthomania.exe: {0:N1} MB" -f ($files[0].Length / 1MB)
+          $shot = Join-Path $env:RUNNER_TEMP 'orthomania-ready.png'
+          $game = Start-Process artifacts/patcher/orthomania.exe -ArgumentList '--demo', 'ready', '--screenshot', $shot -PassThru
+          if (-not $game.WaitForExit(180000)) { $game.Kill(); throw 'orthomania.exe did not close after its screenshot' }
+          if (-not (Test-Path $shot)) { throw "orthomania.exe exited ($($game.ExitCode)) without drawing its window" }
       - uses: actions/upload-artifact@v4
         with:
           name: orthomania-patcher-win-x64
           path: artifacts/patcher
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: orthomania-patcher-screenshot
+          path: ${{ runner.temp }}/orthomania-ready.png
+          if-no-files-found: ignore
 
   publish-server:
     name: Publish the score server (win-x64)

@@ -73,15 +73,18 @@ The builds are made by [`lazer-builds.yml`](.github/workflows/lazer-builds.yml).
 
 A change to the ruleset on main, or a run by hand (**Run workflow**, optionally naming a release), builds again with a higher build number, which replaces the older build on each player's next launch. A build that fails is left as a draft release with a link to the run, so the hourly check does not try it again until the ruleset changes. NuGet's `ppy.osu.Game` is not used for releases, because ppy does not publish every lazer release there.
 
-A build is only ever put beside the lazer release it names, and it can add files to lazer's but never replace one. Format 2 promises what [What orthomania may touch](#what-orthomania-may-touch) asks of the game side. The patcher itself is released as `patcher-<version>`.
+A build is only ever put beside the lazer release it names, and it can add files to lazer's but never replace one. Format 2 promises what [What orthomania may touch](#what-orthomania-may-touch) asks of the game side.
+
+The patcher itself is released as `patcher-<version>`, with `orthomania.exe` as its one file: published for `win-x64`, the patcher is a single self-contained exe with the .NET runtime, osu-framework and its native libraries inside, so players need nothing installed and nothing beside it. On first start it unpacks the native libraries to `%TEMP%\.net\orthomania`. The version it reports is `<Version>` in `Directory.Build.props`, and the patcher tells players when a release with a higher one is out.
 
 ## Launching from a clone
 
-Double-click `launch.bat` at the top of the clone. It builds the patcher and the score server from this clone into
-`artifacts\launch` (the first time takes a minute or two, later ones only rebuild what changed) and opens `orthomania.exe`,
-which then does everything above. The score server is built beside it, so the patcher's dev option can start it (see
-[below](#starting-the-score-server-with-the-game-development-only)). It needs the .NET 10 SDK, and says so if it is missing.
-If orthomania is already open, it leaves it open.
+Double-click `launch.bat` at the top of the clone. It builds first on every run, so it always runs the clone's current code:
+the patcher as one file, `artifacts\launch\orthomania.exe`, and the score server in `artifacts\launch\server`, where the
+patcher's dev option looks for it (see [below](#starting-the-score-server-with-the-game-development-only)). The first time
+takes a minute or two; later ones only rebuild what changed, a few seconds when nothing did. Then it opens `orthomania.exe`,
+which does everything above. That `orthomania.exe` is the file to release; the source stays in the repository. It needs the
+.NET 10 SDK, and says so if it is missing. If orthomania is already open, it leaves it open.
 
 ## Building
 
@@ -97,7 +100,7 @@ The files at the top (`global.json`, `Directory.Build.props`, `.editorconfig`, C
 
 ```
 dotnet test patcher/Orthomania.Patcher.sln
-dotnet publish patcher/src/Orthomania.Patcher -c Release -r win-x64 --self-contained -o artifacts/patcher
+dotnet publish patcher/src/Orthomania.Patcher -c Release -r win-x64 -o artifacts/patcher   # one file: artifacts/patcher/orthomania.exe
 dotnet test patcher/ruleset/osu.Game.Rulesets.ManiaOrtho.Tests
 ```
 
