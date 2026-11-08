@@ -44,8 +44,15 @@ namespace osu.Game.Rulesets.ManiaOrtho.UI
     /// are searched it shows when its name or any of its settings matches, folded or not, and a match on its name shows all of
     /// its settings.
     /// </summary>
-    public partial class OrthoSettingsGroup : FillFlowContainer, IFilterable
+    public partial class OrthoSettingsGroup : FillFlowContainer, IConditionalFilterable
     {
+        /// <summary>
+        /// Whether the group can show at all (the wall's, only under a game with a wall); a search then never shows it either.
+        /// </summary>
+        public BindableBool CanBeShown { get; } = new BindableBool(true);
+
+        IBindable<bool> IConditionalFilterable.CanBeShown => CanBeShown;
+
         public LocalisableString Title { get; }
 
         public SettingsGroupStyle Style { get; }
@@ -104,6 +111,9 @@ namespace osu.Game.Rulesets.ManiaOrtho.UI
         protected override void LoadComplete()
         {
             base.LoadComplete();
+
+            // Outside a search too.
+            CanBeShown.BindValueChanged(e => Alpha = e.NewValue ? 1 : 0, true);
 
             Expanded.BindValueChanged(e =>
             {

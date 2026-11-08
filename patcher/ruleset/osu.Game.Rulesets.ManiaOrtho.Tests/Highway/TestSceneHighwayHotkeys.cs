@@ -3,6 +3,7 @@
 
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Bindables;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Input.Bindings;
@@ -79,6 +80,28 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Highway
 
             pressWithShift(Key.F3);
             AddAssert("back to 5%", () => wall, () => Is.EqualTo(HighwayHotkeys.WALL_STEP).Within(1e-4f));
+        }
+
+        /// <summary>
+        /// A game without a wall (SDVX) keeps it down: the keys leave it alone, so it never moves and no toast shows.
+        /// </summary>
+        [Test]
+        public void TestNoWallKeysInAGameWithout()
+        {
+            Bindable<float> watched = null!;
+            int changes = 0;
+
+            AddStep("SDVX", () => config.Highway.SetValue(HighwaySetting.Preset, HighwayPreset.Voltex));
+            AddStep("watch the wall", () =>
+            {
+                changes = 0;
+                watched = config.Highway.GetBindable<float>(HighwaySetting.Wall);
+                watched.BindValueChanged(_ => changes++);
+            });
+
+            pressWithShift(Key.F4);
+            AddAssert("no wall, never moved", () => (wall, changes), () => Is.EqualTo((0f, 0)));
+            AddStep("stop watching", () => watched.UnbindAll());
         }
 
         /// <summary>

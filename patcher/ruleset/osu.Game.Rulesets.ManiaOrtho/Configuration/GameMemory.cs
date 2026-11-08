@@ -19,7 +19,13 @@ namespace osu.Game.Rulesets.ManiaOrtho.Configuration
         private readonly Dictionary<HighwayPreset, SortedDictionary<string, string>> games = new Dictionary<HighwayPreset, SortedDictionary<string, string>>();
 
         /// <summary>
-        /// Reads a stored string. Unknown games and malformed parts are skipped, so a string from a newer version still loads.
+        /// Games this version does not know (stored by a newer one), kept as they were so writing does not drop them.
+        /// </summary>
+        private readonly List<string> unknownGames = new List<string>();
+
+        /// <summary>
+        /// Reads a stored string. Malformed parts are skipped and games this version does not know are kept as text, so a
+        /// string from a newer version still loads and survives being written again.
         /// </summary>
         public static GameMemory Parse(string? text)
         {
@@ -32,8 +38,14 @@ namespace osu.Game.Rulesets.ManiaOrtho.Configuration
             {
                 int colon = game.IndexOf(':');
 
-                if (colon <= 0 || !Enum.TryParse(game.AsSpan(0, colon), out HighwayPreset preset))
+                if (colon <= 0)
                     continue;
+
+                if (!Enum.TryParse(game.AsSpan(0, colon), out HighwayPreset preset) || !Enum.IsDefined(preset))
+                {
+                    memory.unknownGames.Add(game);
+                    continue;
+                }
 
                 foreach (string pair in game.Substring(colon + 1).Split(',', StringSplitOptions.RemoveEmptyEntries))
                 {
@@ -99,6 +111,14 @@ namespace osu.Game.Rulesets.ManiaOrtho.Configuration
                     text.Append(';');
 
                 text.Append(game).Append(':').AppendJoin(',', values.Select(v => $"{v.Key}={v.Value}"));
+            }
+
+            foreach (string game in unknownGames)
+            {
+                if (text.Length > 0)
+                    text.Append(';');
+
+                text.Append(game);
             }
 
             return text.ToString();
