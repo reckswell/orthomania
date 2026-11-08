@@ -4,6 +4,8 @@
     <RootNamespace>Orthomania.Patcher</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Description>What the orthomania patcher does, without its window: finding and updating lazer, the version folders, releases and launching.</Description>
+    <!-- Its symbols inside the DLL, so they go into the one-file orthomania.exe with it and its errors keep their line numbers. -->
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
   <ItemGroup>
     <!-- The same updater library, at the same version, that osu!(lazer) updates itself with (osu.Desktop.csproj). -->

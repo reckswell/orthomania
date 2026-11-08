@@ -8,6 +8,24 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <!--
+    Published for a platform (dotnet publish -r win-x64), the patcher is one file, orthomania.exe: the .NET runtime, osu-framework and
+    its native libraries (SDL, BASS, the renderers) are all inside it, so a release is that file alone and needs nothing installed.
+    The native libraries are unpacked to a cache folder (%TEMP%\.net\orthomania) on first start. Builds and tests are unchanged.
+  -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+  <!-- A linker file one of osu-framework's packages ships beside its native library: not needed to run, and not bundled. -->
+  <Target Name="LeaveOutLinkerFiles" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.lib'" />
+    </ItemGroup>
+  </Target>
   <ItemGroup>
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-jjfr-hcj7-qf5w" />
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-v76p-62qx-wwq2" />

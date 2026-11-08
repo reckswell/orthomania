@@ -1,7 +1,9 @@
 @echo off
-rem One click to start orthomania from this clone: builds the patcher (orthomania.exe) and the score server it can start
-rem for development, then opens the patcher. Needs the .NET 10 SDK. The build goes to artifacts\launch (never committed);
-rem the first run takes a minute or two, later runs only rebuild what changed.
+rem One click to start orthomania from this clone: builds the patcher as one file, orthomania.exe, and the score server it
+rem can start for development, then opens the patcher. Every run builds first, so it always runs this clone's code: the first
+rem run takes a minute or two, later runs only rebuild what changed (a few seconds when nothing did). Needs the .NET 10 SDK.
+rem The build goes to artifacts\launch (never committed). orthomania.exe there is the file to release: the .NET runtime and
+rem everything else it needs are inside it, so players need nothing else.
 setlocal
 cd /d "%~dp0"
 set "OUT=%~dp0artifacts\launch"
@@ -21,8 +23,12 @@ if not errorlevel 1 (
     exit /b 0
 )
 
-echo Building the patcher...
-dotnet publish patcher\src\Orthomania.Patcher -c Release -r win-x64 --self-contained false -o "%OUT%" -nologo -v q
+rem Before orthomania.exe was one file, its DLLs were built beside it here. Nothing uses them now, so that folder starts again.
+if exist "%OUT%\osu.Framework.dll" rmdir /s /q "%OUT%"
+
+rem Published for win-x64, the patcher's project makes it one self-contained file (Orthomania.Patcher.csproj).
+echo Building orthomania.exe...
+dotnet publish patcher\src\Orthomania.Patcher -c Release -r win-x64 -o "%OUT%" -nologo -v q
 if errorlevel 1 goto failed
 
 rem Beside the patcher, where its dev option ("Start the score server with osu!") looks for it.
@@ -36,6 +42,7 @@ if errorlevel 1 (
 rem CI runs this file to check it builds, without opening the window.
 if defined ORTHOMANIA_BUILD_ONLY exit /b 0
 
+echo Starting %OUT%\orthomania.exe
 start "" "%OUT%\orthomania.exe"
 exit /b 0
 
