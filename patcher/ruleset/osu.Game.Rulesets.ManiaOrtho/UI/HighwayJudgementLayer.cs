@@ -160,8 +160,10 @@ namespace osu.Game.Rulesets.ManiaOrtho.UI
             {
                 float y = projection.YAt(0) - above;
 
-                // The track's depth at that height sets how far the lanes have narrowed, and so the judgement's size.
-                float minDepth = Math.Max(projection.MinDepth, -1) / 2;
+                // The track's depth at that height sets how far the lanes have narrowed, and so the judgement's size. Below the
+                // line the size stops at half way to the camera plane (or depth -1), measured on the perspective lane so that
+                // the cap is the same whatever the note approach.
+                float minDepth = projection.DepthAtPerspectiveDepth(Math.Max(projection.PerspectiveDepthAt(projection.MinDepth), -1) / 2);
                 float depth = Math.Clamp(projection.DepthAtY(y), minDepth, 1);
                 float lane = (stageCentreX - source.Left + across * stretch) / source.Width;
 

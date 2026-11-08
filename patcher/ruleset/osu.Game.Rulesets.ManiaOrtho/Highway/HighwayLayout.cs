@@ -58,6 +58,14 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
         public float Lean { get; init; }
 
         /// <summary>
+        /// How notes travel down the track (<see cref="ApproachCurve"/>): from <see cref="ApproachCurve.PERSPECTIVE"/> (-1, the
+        /// default: true perspective, linear in depth) through <see cref="ApproachCurve.SEKAI"/> (0, Project Sekai's even growth)
+        /// to <see cref="ApproachCurve.EVEN"/> (1, a steady speed on screen). The track's shape does not change, only where along
+        /// it each depth is drawn.
+        /// </summary>
+        public float Approach { get; init; }
+
+        /// <summary>
         /// A copy leaning so that the lanes converge above <paramref name="x"/> (a fraction of the playfield width) instead of
         /// above <see cref="CentreX"/>. Lanes that stay parallel have nowhere to converge, so they do not lean.
         /// </summary>
@@ -67,6 +75,31 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
         /// </remarks>
         public HighwayLayout LeanTowards(float x) => this with { Lean = (x - CentreX) * (1 - Math.Clamp(FarWidthRatio, MIN_FAR_WIDTH_RATIO, 1f)) };
 
+        /// <summary>
+        /// A copy with the far edge raised by <paramref name="lift"/> (0 to 1) of its distance below the top edge, as SDVX's
+        /// charts pitch the lane up at a chorus (research/topic-camera-motion.md C1). The far end widens with the lane's height
+        /// on screen, so notes reach the judgement line at the same speed under the Perspective approach (the near end's look
+        /// is kept; an eased <see cref="Approach"/> changes that speed a little, Even by the lane's change in height), and the lanes still
+        /// converge above the same point. The judgement line and the near width stay put. A lane already reaching the top does
+        /// not move.
+        /// </summary>
+        public HighwayLayout Lifted(float lift)
+        {
+            float span = JudgementY - FarY;
+
+            if (!(lift > 0) || FarY <= 0 || span <= 0)
+                return this;
+
+            float farY = FarY * (1 - Math.Min(lift, 1));
+            float ratio = Math.Clamp(FarWidthRatio, MIN_FAR_WIDTH_RATIO, 1f);
+            float liftedRatio = Math.Min(1, ratio * (JudgementY - farY) / span);
+
+            // A lean converges above x = CentreX + Lean / (1 - r) (LeanTowards); keep it there.
+            float lean = ratio < 1 ? Lean * (1 - liftedRatio) / (1 - ratio) : Lean;
+
+            return this with { FarY = farY, FarWidthRatio = liftedRatio, Lean = lean };
+        }
+
         public HighwayLayout()
         {
             JudgementY = 0.88f;
@@ -74,6 +107,7 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
             NearWidth = 0.5f;
             FarWidthRatio = 0.5f;
             CentreX = 0.5f;
+            Approach = ApproachCurve.PERSPECTIVE;
         }
 
         /// <summary>
@@ -103,6 +137,7 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
                 CentreX = Math.Clamp(CentreX, 0f, 1f),
                 Sway = float.IsFinite(Sway) ? Math.Clamp(Sway, -MAX_SWAY, MAX_SWAY) : 0,
                 Lean = float.IsFinite(Lean) ? Math.Clamp(Lean, -1f, 1f) : 0,
+                Approach = float.IsFinite(Approach) ? Math.Clamp(Approach, ApproachCurve.PERSPECTIVE, ApproachCurve.EVEN) : ApproachCurve.PERSPECTIVE,
             };
         }
     }

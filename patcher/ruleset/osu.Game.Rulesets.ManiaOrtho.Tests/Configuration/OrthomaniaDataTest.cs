@@ -152,6 +152,38 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Configuration
             }
         }
 
+        /// <summary>
+        /// What each game remembers and which groups are folded are text settings, kept in the own folder's highway.json too.
+        /// </summary>
+        [Test]
+        public void TestGameMemoryIsKeptInTheOwnFolder()
+        {
+            OrthomaniaData.Current = new OrthomaniaData(data, false);
+
+            var ruleset = new ManiaOrthoRuleset().RulesetInfo;
+            float voltexTilt;
+
+            using (var config = new ManiaOrthoRulesetConfigManager(null, ruleset))
+            {
+                config.Highway.SetValue(HighwaySetting.Preset, HighwayPreset.Voltex);
+                voltexTilt = config.Highway.Get<float>(HighwaySetting.LaneTilt) + 3;
+                config.Highway.SetValue(HighwaySetting.LaneTilt, voltexTilt);
+                config.Highway.SetValue(HighwaySetting.Preset, HighwayPreset.Chunithm);
+                config.Highway.SetValue(HighwaySetting.FoldedGroups, "Other,Speed");
+                config.Highway.Save();
+            }
+
+            using (var config = new ManiaOrthoRulesetConfigManager(null, ruleset))
+            {
+                Assert.That(config.Highway.Get<HighwayPreset>(HighwaySetting.Preset), Is.EqualTo(HighwayPreset.Chunithm));
+                Assert.That(config.Highway.Get<string>(HighwaySetting.FoldedGroups), Is.EqualTo("Other,Speed"));
+                Assert.That(config.Highway.Get<string>(HighwaySetting.GameMemory), Is.Not.Empty);
+
+                config.Highway.SetValue(HighwaySetting.Preset, HighwayPreset.Voltex);
+                Assert.That(config.Highway.Get<float>(HighwaySetting.LaneTilt), Is.EqualTo(voltexTilt).Within(0.01f), "SDVX's tilt, as it was left");
+            }
+        }
+
         [Test]
         public void TestASettingThatCannotBeReadKeepsItsDefault()
         {

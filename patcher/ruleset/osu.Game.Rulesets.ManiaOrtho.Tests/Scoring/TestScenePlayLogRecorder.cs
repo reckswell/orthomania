@@ -93,6 +93,7 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Scoring
             });
             AddStep("Voltex preset, wall in Chunithm's steps", () =>
             {
+                config.Highway.ForgetGames(); // each game remembers its settings; start from its own
                 config.Highway.SetValue(HighwaySetting.Preset, HighwayPreset.Voltex);
                 config.Highway.SetValue(HighwaySetting.WallScale, WallScale.Chunithm);
             });
@@ -106,6 +107,7 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Scoring
             {
                 config.Highway.GetBindable<WallScale>(HighwaySetting.WallScale).SetDefault();
                 config.Highway.GetBindable<bool>(HighwaySetting.WallKeepsVisibleTime).SetDefault();
+                config.Highway.ForgetGames(); // each game remembers its settings; start from its own
                 config.Highway.SetValue(HighwaySetting.Preset, HighwayPreset.Custom);
                 config.Highway.SetValue(HighwaySetting.Preset, HighwayPresets.DEFAULT);
             });

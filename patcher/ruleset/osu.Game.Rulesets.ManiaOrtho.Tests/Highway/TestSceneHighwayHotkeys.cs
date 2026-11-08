@@ -52,10 +52,14 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Highway
         {
             AddStep("Chunithm preset (no wall), wall in percent", () =>
             {
+                config.Highway.ForgetGames(); // each game remembers its settings; start from its own
                 config.Highway.SetValue(HighwaySetting.Preset, HighwayPreset.Custom);
                 config.Highway.SetValue(HighwaySetting.Preset, HighwayPreset.Chunithm);
-                config.Highway.GetBindable<WallScale>(HighwaySetting.WallScale).SetDefault();
+                config.Highway.SetValue(HighwaySetting.Wall, 0f); // a game with a wall leaves it to the player
+                // The Chunithm preset shows Chunithm's numbers; these tests start from percent and osu!mania's.
+                config.Highway.SetValue(HighwaySetting.WallScale, WallScale.Percent);
                 config.Highway.GetBindable<bool>(HighwaySetting.WallKeepsVisibleTime).SetDefault();
+                config.Highway.SetValue(HighwaySetting.SpeedScale, SpeedScale.Mania);
             });
 
             base.SetUpSteps();
@@ -203,6 +207,32 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Highway
 
             AddStep("press F3", () => InputManager.Key(Key.F3));
             AddUntilStep("speed back", () => scrollSpeed, () => Is.EqualTo(before));
+        }
+
+        /// <summary>
+        /// With a game's speed scale (Alpha 2026-11-07), F3 and F4 move one of that game's steps, and the toast names the speed
+        /// in its numbers with the time notes are visible.
+        /// </summary>
+        [Test]
+        public void TestF3AndF4StepTheChosenSpeedScale()
+        {
+            AddStep("Chunithm speed 9.00", () =>
+            {
+                config.Highway.SetValue(HighwaySetting.SpeedScale, SpeedScale.Chunithm);
+                config.SetValue(ManiaRulesetSetting.ScrollSpeed, drawableRuleset.Toasts.AsNonNull().SpeedContext.FromUnits(SpeedScale.Chunithm, 9));
+            });
+
+            AddStep("press F4", () => InputManager.Key(Key.F4));
+            AddUntilStep("Chunithm 9.25", () => drawableRuleset.Toasts.AsNonNull().SpeedContext.ToUnits(SpeedScale.Chunithm, scrollSpeed), () => Is.EqualTo(9.25));
+            AddAssert("the toast says so", () => drawableRuleset.Toasts.AsNonNull().DescribeScrollSpeed(scrollSpeed).Value.ToString(),
+                () => Does.StartWith("Chunithm 9.25 · ").And.EndWith(" ms visible"));
+
+            AddStep("press F3 twice", () =>
+            {
+                InputManager.Key(Key.F3);
+                InputManager.Key(Key.F3);
+            });
+            AddUntilStep("Chunithm 8.75", () => drawableRuleset.Toasts.AsNonNull().SpeedContext.ToUnits(SpeedScale.Chunithm, scrollSpeed), () => Is.EqualTo(8.75));
         }
 
         [Test]

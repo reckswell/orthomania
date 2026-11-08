@@ -68,8 +68,10 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Highway
             {
                 autoplay = true;
                 convert = false;
+                highwayConfig.ForgetGames(); // each game remembers its settings; start from its own
                 highwayConfig.SetValue(HighwaySetting.Preset, HighwayPreset.Custom);
                 highwayConfig.SetValue(HighwaySetting.Preset, HighwayPreset.Chunithm);
+                highwayConfig.SetValue(HighwaySetting.Wall, 0f); // a game with a wall leaves it to the player
                 highwayConfig.SetValue(HighwaySetting.Track, HighwayTrackStyle.Highway);
                 highwayConfig.GetBindable<float>(HighwaySetting.TrackOpacity).SetDefault();
                 highwayConfig.GetBindable<KeyBeamLength>(HighwaySetting.KeyBeam).SetDefault();

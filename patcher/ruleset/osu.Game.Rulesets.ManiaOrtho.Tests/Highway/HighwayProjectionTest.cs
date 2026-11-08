@@ -250,6 +250,54 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Highway
             }
         }
 
+        /// <summary>
+        /// An approach curve moves notes along the lane, not the lane: the ends stay, every eased point lies on the perspective
+        /// track (its width is the track's width at its height), and depth still round-trips through the screen.
+        /// </summary>
+        [TestCase(-0.5f)]
+        [TestCase(ApproachCurve.SEKAI)]
+        [TestCase(ApproachCurve.EVEN)]
+        public void TestApproachMovesNotesAlongTheSameTrack(float approach)
+        {
+            var layout = new HighwayLayout { JudgementY = 0.791f, FarY = 0.016f, NearWidth = 0.787f, FarWidthRatio = 0.073f };
+            var perspective = new HighwayProjection(layout, screen);
+            var eased = new HighwayProjection(layout with { Approach = approach }, screen);
+
+            assertNear(eased.ToScreen(0, 0), perspective.ToScreen(0, 0));
+            assertNear(eased.ToScreen(1, 1), perspective.ToScreen(1, 1));
+
+            for (float depth = 0.1f; depth < 0.95f; depth += 0.1f)
+            {
+                var point = eased.ToScreen(0.25f, depth);
+
+                Assert.That(point.Y, Is.EqualTo(eased.YAt(depth)).Within(0.01f));
+                Assert.That(eased.WidthAt(depth), Is.EqualTo(perspective.WidthAtY(point.Y)).Within(0.01f));
+                Assert.That(point.X, Is.EqualTo(perspective.XAt(0.25f, point.Y)).Within(0.01f));
+                Assert.That(eased.DepthAtY(point.Y), Is.EqualTo(depth).Within(1e-4f));
+
+                // Eased notes are nearer the line than true perspective puts them at the same time (they crawl less far away).
+                Assert.That(point.Y, Is.GreaterThan(perspective.YAt(depth)));
+            }
+        }
+
+        [TestCase(ApproachCurve.SEKAI)]
+        [TestCase(ApproachCurve.EVEN)]
+        public void TestApproachKeepsTheNearPlane(float approach)
+        {
+            var p = new HighwayProjection(new HighwayLayout { FarWidthRatio = 0.1f, Approach = approach }, screen);
+
+            Assert.That(float.IsFinite(p.MinDepth) && p.MinDepth < 0);
+            Assert.That(p.ScaleAt(p.MinDepth), Is.GreaterThan(1).And.LessThan(1000));
+            Assert.That(float.IsFinite(p.ToScreen(0, p.MinDepth).Y));
+        }
+
+        [Test]
+        public void TestApproachIsSanitised()
+        {
+            Assert.That(new HighwayLayout { Approach = float.NaN }.Sanitised().Approach, Is.EqualTo(ApproachCurve.PERSPECTIVE));
+            Assert.That(new HighwayLayout { Approach = 5 }.Sanitised().Approach, Is.EqualTo(ApproachCurve.EVEN));
+        }
+
         private static void assertNear(Vector2 actual, Vector2 expected)
         {
             Assert.That(actual.X, Is.EqualTo(expected.X).Within(0.01f), "x");

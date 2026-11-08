@@ -98,16 +98,22 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Highway
             Assert.That(new HighwayScroll(-1, true).Wall, Is.EqualTo(0));
         }
 
-        [TestCase(HighwayCameraMode.Perspective, 0.5f)]
-        [TestCase(HighwayCameraMode.ParallelTilt, 1f)]
-        public void TestNoteLeadingEdgeOnTheLineOnScreen(HighwayCameraMode mode, float expectedRatio)
+        [TestCase(HighwayCameraMode.Perspective, ApproachCurve.PERSPECTIVE)]
+        [TestCase(HighwayCameraMode.Perspective, ApproachCurve.SEKAI)]
+        [TestCase(HighwayCameraMode.Perspective, ApproachCurve.EVEN)]
+        [TestCase(HighwayCameraMode.ParallelTilt, ApproachCurve.SEKAI)]
+        public void TestNoteLeadingEdgeOnTheLineOnScreen(HighwayCameraMode mode, float approach)
         {
-            // End to end: settings -> layout + scroll -> screen. At its hit time a note is exactly on the judgement line.
-            var settings = new HighwaySettings { CameraMode = mode, FarWidthRatio = 0.5f, JudgementLineHeight = 0.12f };
+            // End to end: settings -> layout + scroll -> screen. At its hit time a note is exactly on the judgement line, and it
+            // appears at the far edge, whatever the approach curve.
+            var settings = new HighwaySettings { CameraMode = mode, LaneTilt = 60, LaneLength = 4, Approach = approach, JudgementLineHeight = 0.12f };
             var projection = new HighwayProjection(settings.ToLayout(), new Vector2(1920, 1080));
             var scroll = settings.ToScroll();
 
-            Assert.That(projection.Layout.FarWidthRatio, Is.EqualTo(expectedRatio));
+            if (mode == HighwayCameraMode.Perspective)
+                Assert.That(projection.Layout.FarWidthRatio, Is.LessThan(0.5f));
+            else
+                Assert.That(projection.Layout.FarWidthRatio, Is.EqualTo(1));
 
             float depth = scroll.DepthAt(new ConstantScrollAlgorithm(), hit_time, hit_time, time_range);
             Assert.That(projection.YAt(depth), Is.EqualTo(0.88f * 1080).Within(0.01f));

@@ -79,25 +79,18 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
 
         /// <summary>
         /// The share of the lane's height on screen (from the far edge down to the judgement line) that <paramref name="wall"/>
-        /// covers, under a camera whose far edge is <paramref name="farWidthRatio"/> of the near width (1 for parallel lanes).
-        /// The inverse of <see cref="WallForScreenShare"/>; see <see cref="HighwayProjection.YAt"/>.
+        /// covers, under a camera whose far edge is <paramref name="farWidthRatio"/> of the near width (1 for parallel lanes)
+        /// and whose notes approach on <paramref name="approach"/> (<see cref="HighwayLayout.Approach"/>). The inverse of
+        /// <see cref="WallForScreenShare"/>; see <see cref="HighwayProjection.ShareAt(float)"/>.
         /// </summary>
-        public static float ScreenShare(float wall, float farWidthRatio)
-        {
-            float c = compression(farWidthRatio);
-            float depth = 1 - wall;
-            return 1 - depth * (1 + c) / (1 + c * depth);
-        }
+        public static float ScreenShare(float wall, float farWidthRatio, float approach = ApproachCurve.PERSPECTIVE)
+            => 1 - HighwayProjection.ShareAt(1 - wall, compression(farWidthRatio), approach);
 
         /// <summary>
         /// The wall that covers <paramref name="share"/> of the lane's height on screen.
         /// </summary>
-        public static float WallForScreenShare(float share, float farWidthRatio)
-        {
-            float c = compression(farWidthRatio);
-            float t = 1 - share;
-            return 1 - t / (1 + c - c * t);
-        }
+        public static float WallForScreenShare(float share, float farWidthRatio, float approach = ApproachCurve.PERSPECTIVE)
+            => 1 - HighwayProjection.DepthAtShare(1 - share, compression(farWidthRatio), approach);
 
         /// <summary>
         /// Whether choosing <paramref name="scale"/> switches the wall to keep visible time (true) or speed (false), as that
@@ -123,7 +116,7 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
         /// <paramref name="wall"/> in <paramref name="scale"/>'s units: percent, a Chunithm step, a white number or a percent
         /// of the lane.
         /// </summary>
-        public static int ToUnits(WallScale scale, float wall, float farWidthRatio)
+        public static int ToUnits(WallScale scale, float wall, float farWidthRatio, float approach = ApproachCurve.PERSPECTIVE)
         {
             switch (scale)
             {
@@ -131,10 +124,10 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
                     return ChunithmStep(wall);
 
                 case WallScale.Iidx:
-                    return (int)Math.Round(ScreenShare(wall, farWidthRatio) * 1000);
+                    return (int)Math.Round(ScreenShare(wall, farWidthRatio, approach) * 1000);
 
                 case WallScale.Lane:
-                    return (int)Math.Round(ScreenShare(wall, farWidthRatio) * 100);
+                    return (int)Math.Round(ScreenShare(wall, farWidthRatio, approach) * 100);
 
                 default:
                     return (int)Math.Round(wall * 100);
@@ -144,7 +137,7 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
         /// <summary>
         /// The wall at <paramref name="units"/> of <paramref name="scale"/>, within the wall's range.
         /// </summary>
-        public static float FromUnits(WallScale scale, int units, float farWidthRatio)
+        public static float FromUnits(WallScale scale, int units, float farWidthRatio, float approach = ApproachCurve.PERSPECTIVE)
         {
             float wall;
 
@@ -155,11 +148,11 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
                     break;
 
                 case WallScale.Iidx:
-                    wall = WallForScreenShare(units / 1000f, farWidthRatio);
+                    wall = WallForScreenShare(units / 1000f, farWidthRatio, approach);
                     break;
 
                 case WallScale.Lane:
-                    wall = WallForScreenShare(units / 100f, farWidthRatio);
+                    wall = WallForScreenShare(units / 100f, farWidthRatio, approach);
                     break;
 
                 default:
@@ -174,7 +167,8 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
         /// The most <paramref name="scale"/>'s units can reach within the wall's range: the wall's most, as shown in them
         /// (<see cref="FromUnits"/> clamps the last unit to the range).
         /// </summary>
-        public static int MaxUnits(WallScale scale, float farWidthRatio) => ToUnits(scale, HighwayScroll.MAX_WALL, farWidthRatio);
+        public static int MaxUnits(WallScale scale, float farWidthRatio, float approach = ApproachCurve.PERSPECTIVE)
+            => ToUnits(scale, HighwayScroll.MAX_WALL, farWidthRatio, approach);
 
         /// <summary>
         /// How far one press of the gameplay keys (Shift with the scroll speed keys) moves the wall, in <paramref name="scale"/>'s units.
@@ -204,13 +198,13 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
         /// A wall between two units counts from the one behind it, so one press never moves more than one step, and the wall
         /// never moves against the key (at the top of a scale whose last unit is below the wall's most, it stays).
         /// </summary>
-        public static float Step(WallScale scale, float wall, int steps, float farWidthRatio)
+        public static float Step(WallScale scale, float wall, int steps, float farWidthRatio, float approach = ApproachCurve.PERSPECTIVE)
         {
             if (steps == 0)
                 return wall;
 
-            int nearest = ToUnits(scale, wall, farWidthRatio);
-            float atNearest = FromUnits(scale, nearest, farWidthRatio);
+            int nearest = ToUnits(scale, wall, farWidthRatio, approach);
+            float atNearest = FromUnits(scale, nearest, farWidthRatio, approach);
             int from = nearest;
 
             if (Math.Abs(atNearest - wall) > on_unit_tolerance)
@@ -222,8 +216,8 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
                     from = nearest + 1;
             }
 
-            int units = Math.Clamp(from + steps * KeyStep(scale), 0, MaxUnits(scale, farWidthRatio));
-            float next = FromUnits(scale, units, farWidthRatio);
+            int units = Math.Clamp(from + steps * KeyStep(scale), 0, MaxUnits(scale, farWidthRatio, approach));
+            float next = FromUnits(scale, units, farWidthRatio, approach);
 
             return steps > 0 ? Math.Max(next, wall) : Math.Min(next, wall);
         }
@@ -231,9 +225,9 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
         /// <summary>
         /// <paramref name="wall"/> in <paramref name="scale"/>'s units: "40%", "wall 5", "WN 350" or "25% of the lane".
         /// </summary>
-        public static string Format(WallScale scale, float wall, float farWidthRatio)
+        public static string Format(WallScale scale, float wall, float farWidthRatio, float approach = ApproachCurve.PERSPECTIVE)
         {
-            int units = ToUnits(scale, wall, farWidthRatio);
+            int units = ToUnits(scale, wall, farWidthRatio, approach);
 
             switch (scale)
             {
@@ -254,9 +248,9 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
         /// <summary>
         /// <paramref name="wall"/> as the wall toast shows it: "40% covered", "wall 5", "WN 350" or "25% of the lane covered".
         /// </summary>
-        public static string Describe(WallScale scale, float wall, float farWidthRatio)
+        public static string Describe(WallScale scale, float wall, float farWidthRatio, float approach = ApproachCurve.PERSPECTIVE)
         {
-            string units = Format(scale, wall, farWidthRatio);
+            string units = Format(scale, wall, farWidthRatio, approach);
             return scale == WallScale.Percent || scale == WallScale.Lane ? units + " covered" : units;
         }
 

@@ -340,7 +340,12 @@ namespace osu.Game.Rulesets.ManiaOrtho.Scoring
         /// The wall scale and the wall in its units, "Chunithm 5".
         /// </summary>
         private static string wallScale(HighwaySettings settings)
-            => $"{settings.WallScale} {WallScales.ToUnits(settings.WallScale, settings.Wall, settings.ToLayout().FarWidthRatio).ToString(CultureInfo.InvariantCulture)}";
+        {
+            var layout = settings.ToLayout();
+            int units = WallScales.ToUnits(settings.WallScale, settings.Wall, layout.FarWidthRatio, layout.Approach);
+
+            return $"{settings.WallScale} {units.ToString(CultureInfo.InvariantCulture)}";
+        }
 
         private static void set(string?[] row, string column, string? value) => row[Array.IndexOf(PlayLog.COLUMNS, column)] = value;
     }

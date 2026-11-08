@@ -16,8 +16,9 @@ namespace osu.Game.Rulesets.ManiaOrtho.Configuration
     /// 2026-11-04: changing keys matches the gameplay field; DECISIONS "Settings consistent with osu!mania").
     /// </summary>
     /// <remarks>
-    /// Gameplay reads osu!mania's bindings directly (<see cref="UI.DrawableManiaOrthoRuleset"/>), so this keeps the maniaortho
-    /// section of osu!'s key binding settings, which osu! lists for every ruleset, storing the same keys. When it starts,
+    /// Runs while "Share osu!mania's keys" is on, when gameplay reads osu!mania's bindings directly
+    /// (<see cref="UI.ManiaOrthoInputManager"/>), so this keeps the maniaortho section of osu!'s key binding settings, which
+    /// osu! lists for every ruleset, storing the same keys. When it starts,
     /// <see cref="Merge"/> settles each key count once. After that, a change on one side is copied to the other for the
     /// columns (actions) it changed only, so the echo of a copy, which finds both sides equal, writes nothing and never
     /// carries an older key back over one changed meanwhile. Each action keeps its keys in order, so a second key bound to an

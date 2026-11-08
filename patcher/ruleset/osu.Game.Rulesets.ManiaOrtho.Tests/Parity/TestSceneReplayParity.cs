@@ -11,6 +11,7 @@ using osu.Framework.Testing;
 using osu.Game.Database;
 using osu.Game.Rulesets.Judgements;
 using osu.Game.Rulesets.Mania;
+using osu.Game.Rulesets.Mania.Configuration;
 using osu.Game.Rulesets.Objects;
 using osu.Game.Rulesets.ManiaOrtho.Configuration;
 using osu.Game.Rulesets.ManiaOrtho.Highway;
@@ -119,6 +120,20 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Parity
         }
 
         /// <summary>
+        /// maniaortho's fastest speed (60, past osu!mania's 40) shows notes for less time than Easy's widest hit window on this
+        /// chart: notes still appear in time to be hit early, and are judged as in osu!mania.
+        /// </summary>
+        [TestCase("synthetic-7k", 13)]
+        public void TestJudgementParityAtTheFastestSpeed(string source, int seed)
+        {
+            AddStep("speed 60", () => orthoConfig.SetValue(ManiaRulesetSetting.ScrollSpeed, SpeedScales.MAX_MANIA_SPEED));
+
+            testParity(source, seed, HighwayNoteStyle.Highway, "EZ");
+
+            AddAssert("ortho run played at 60", () => orthoConfig.Get<double>(ManiaRulesetSetting.ScrollSpeed), () => Is.EqualTo(SpeedScales.MAX_MANIA_SPEED));
+        }
+
+        /// <summary>
         /// The far fade only changes how native notes are drawn, at its longest here.
         /// </summary>
         [TestCase("synthetic-7k", 12)]
@@ -146,11 +161,13 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Parity
             // A case that changes the camera must not leave it changed for the next one, even when it fails.
             AddStep("default preset", () =>
             {
+                orthoConfig.Highway.ForgetGames(); // each game remembers its settings; start from its own
                 orthoConfig.Highway.SetValue(HighwaySetting.Preset, HighwayPreset.Custom);
                 orthoConfig.Highway.SetValue(HighwaySetting.Preset, HighwayPresets.DEFAULT);
                 orthoConfig.Highway.SetValue(HighwaySetting.Track, HighwayTrackStyle.Highway);
                 orthoConfig.Highway.SetValue(HighwaySetting.HitEffects, HighwayHitEffectStyle.Highway);
                 orthoConfig.Highway.GetBindable<float>(HighwaySetting.FarFade).SetDefault();
+                orthoConfig.GetBindable<double>(ManiaRulesetSetting.ScrollSpeed).SetDefault();
                 skins.CurrentSkinInfo.SetDefault();
             });
         }

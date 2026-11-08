@@ -88,10 +88,41 @@ namespace osu.Game.Rulesets.ManiaOrtho.UI
         /// <remarks>
         /// From the new speed, not the play's time range: this runs before mania applies the change.
         /// </remarks>
-        public SettingDescription DescribeScrollSpeed(double speed) => new SettingDescription(
-            rawValue: speed,
-            name: RulesetSettingsStrings.ScrollSpeed,
-            value: RulesetSettingsStrings.ScrollSpeedTooltip(milliseconds(visibleTimeAt(DrawableManiaRuleset.ComputeScrollTime(speed))), speed));
+        public SettingDescription DescribeScrollSpeed(double speed)
+        {
+            var scale = config.Highway.Get<SpeedScale>(HighwaySetting.SpeedScale);
+
+            if (scale == SpeedScale.Mania)
+            {
+                return new SettingDescription(
+                    rawValue: speed,
+                    name: RulesetSettingsStrings.ScrollSpeed,
+                    value: RulesetSettingsStrings.ScrollSpeedTooltip(milliseconds(visibleTimeAt(DrawableManiaRuleset.ComputeScrollTime(speed))), speed));
+            }
+
+            // In the chosen game's numbers: "Chunithm 9.25 · 593 ms visible".
+            var context = SpeedContext;
+
+            return new SettingDescription(
+                rawValue: speed,
+                name: SpeedScales.Caption(scale),
+                value: $"{SpeedScales.Format(scale, context.ToUnits(scale, speed))} · {milliseconds(context.Milliseconds(speed, true))} ms visible");
+        }
+
+        /// <summary>
+        /// What turns the scroll speed into a game's speed numbers in this play: its skin's line, its rate, the wall and camera.
+        /// </summary>
+        public SpeedContext SpeedContext
+        {
+            get
+            {
+                var settings = config.Highway.Current;
+                var mods = gameplayClock?.AdjustmentsFromMods;
+                double rate = mods == null ? 1 : mods.AggregateTempo.Value * mods.AggregateFrequency.Value;
+
+                return new SpeedContext(VisibleTime.HitPosition(skin), rate, settings.ToScroll(), settings.CameraMode == HighwayCameraMode.Flat);
+            }
+        }
 
         /// <summary>
         /// "40% covered · 405 ms visible" (in the chosen <see cref="WallScale"/>'s units: "wall 5", "WN 350"), with "(speed
@@ -109,7 +140,8 @@ namespace osu.Game.Rulesets.ManiaOrtho.UI
                 cover = wall > 0 ? $"{WallScales.Format(settings.WallScale, wall, 1)}, not drawn by the flat camera" : "Off";
             else if (wall > 0)
             {
-                cover = WallScales.Describe(settings.WallScale, wall, settings.ToLayout().FarWidthRatio);
+                var layout = settings.ToLayout();
+                cover = WallScales.Describe(settings.WallScale, wall, layout.FarWidthRatio, layout.Approach);
                 if (!settings.WallKeepsVisibleTime)
                     cover += " (speed kept)";
             }
@@ -142,11 +174,8 @@ namespace osu.Game.Rulesets.ManiaOrtho.UI
 
         private double visibleTimeAt(double targetTimeRange)
         {
-            var settings = config.Highway.Current;
-            var mods = gameplayClock?.AdjustmentsFromMods;
-            double rate = mods == null ? 1 : mods.AggregateTempo.Value * mods.AggregateFrequency.Value;
-
-            return VisibleTime.Of(targetTimeRange, VisibleTime.HitPosition(skin), rate, settings.ToScroll(), settings.CameraMode == HighwayCameraMode.Flat);
+            var context = SpeedContext;
+            return VisibleTime.Of(targetTimeRange, context.HitPosition, context.Rate, context.Scroll, context.Flat);
         }
 
         private static int milliseconds(double time) => (int)Math.Round(time);

@@ -182,13 +182,10 @@ namespace osu.Game.Rulesets.ManiaOrtho.UI
                     return BEAM_LENGTH;
             }
 
-            // HighwayProjection.YAt and DepthAtY, measured as a share of the line-to-far-edge height so that no screen size is
-            // needed: depth d is drawn at t = d(1 + c) / (1 + c·d), and t at d = t / (1 + c − c·t).
-            float c = projection.Compression;
-            float end = farDepth * (1 + c) / (1 + c * farDepth);
-            float t = screenShare * end;
+            // Measured as a share of the line-to-far-edge height, so that no screen size is needed.
+            float t = screenShare * projection.ShareAt(farDepth);
 
-            return Math.Min(BEAM_LENGTH, t / (1 + c - c * t));
+            return Math.Min(BEAM_LENGTH, projection.DepthAtShare(t));
         }
 
         /// <summary>
