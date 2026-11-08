@@ -178,6 +178,10 @@ namespace osu.Game.Rulesets.ManiaOrtho.Configuration
             applySkinLayoutDefault();
             startGameMemoryOnce();
 
+            // Custom has no values of its own: what is stored is its look, whatever else changed it since it was remembered.
+            if (preset.Value == HighwayPreset.Custom)
+                rememberAll(HighwayPreset.Custom);
+
             // A game always shows its own values under the player's changes, so tuning a game in code reaches everyone who
             // left that value alone.
             applyGame(preset.Value, false);
