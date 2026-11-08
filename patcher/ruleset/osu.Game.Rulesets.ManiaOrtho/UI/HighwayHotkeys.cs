@@ -108,8 +108,13 @@ namespace osu.Game.Rulesets.ManiaOrtho.UI
             if (steps == 0)
                 return false;
 
+            // A game without a wall keeps it down (HighwayPresets.HasWall).
+            if (!HighwayPresets.HasWall(config.Get<HighwayPreset>(HighwaySetting.Preset)))
+                return false;
+
             var settings = config.Current;
-            wall.Value = WallScales.Step(settings.WallScale, wall.Value, steps, settings.ToLayout().FarWidthRatio);
+            var layout = settings.ToLayout();
+            wall.Value = WallScales.Step(settings.WallScale, wall.Value, steps, layout.FarWidthRatio, layout.Approach);
 
             // Seen, never handled: the key goes on to everything it would reach in mania.
             return false;

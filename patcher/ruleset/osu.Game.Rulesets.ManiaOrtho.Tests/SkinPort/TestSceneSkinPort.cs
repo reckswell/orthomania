@@ -43,8 +43,10 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.SkinPort
         {
             AddStep("Chunithm preset, ported skin", () =>
             {
+                highwayConfig.ForgetGames(); // each game remembers its settings; start from its own
                 highwayConfig.SetValue(HighwaySetting.Preset, HighwayPreset.Custom);
                 highwayConfig.SetValue(HighwaySetting.Preset, HighwayPreset.Chunithm);
+                highwayConfig.SetValue(HighwaySetting.Wall, 0f); // a game with a wall leaves it to the player
                 highwayConfig.SetValue(HighwaySetting.NoteStyle, HighwayNoteStyle.Ported);
                 highwayConfig.SetValue(HighwaySetting.HitEffects, HighwayHitEffectStyle.Ported);
                 highwayConfig.SetValue(HighwaySetting.Track, HighwayTrackStyle.Ported);

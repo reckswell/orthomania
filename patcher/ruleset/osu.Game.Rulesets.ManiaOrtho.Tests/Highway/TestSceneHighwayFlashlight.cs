@@ -56,8 +56,10 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Highway
                 Stack.RelativeSizeAxes = Axes.Both;
                 Stack.Size = Vector2.One;
 
+                highwayConfig.ForgetGames(); // each game remembers its settings; start from its own
                 highwayConfig.SetValue(HighwaySetting.Preset, HighwayPreset.Custom);
                 highwayConfig.SetValue(HighwaySetting.Preset, HighwayPreset.Chunithm);
+                highwayConfig.SetValue(HighwaySetting.Wall, 0f); // a game with a wall leaves it to the player
                 highwayConfig.GetBindable<HighwayNoteStyle>(HighwaySetting.NoteStyle).SetDefault();
             });
 

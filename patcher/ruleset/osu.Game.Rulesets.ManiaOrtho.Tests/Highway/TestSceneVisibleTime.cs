@@ -105,6 +105,7 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Highway
                 highwayConfig.GetBindable<WallScale>(HighwaySetting.WallScale).SetDefault();
                 highwayConfig.GetBindable<bool>(HighwaySetting.WallKeepsVisibleTime).SetDefault();
                 highwayConfig.GetBindable<HighwayPreset>(HighwaySetting.Preset).SetDefault();
+                highwayConfig.GetBindable<float>(HighwaySetting.Wall).SetDefault();
             });
 
             base.TearDownSteps();
@@ -216,9 +217,12 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Highway
             $"{camera}, wall {wall:0%}, keep visible time: {keepVisibleTime}, {(classicSkin ? "classic" : "default")} skin, speed {speed}", () =>
             {
                 skins.CurrentSkinInfo.Value = classicSkin ? DefaultLegacySkin.CreateInfo().ToLiveUnmanaged() : ArgonSkin.CreateInfo().ToLiveUnmanaged();
-                highwayConfig.GetBindable<WallScale>(HighwaySetting.WallScale).SetDefault();
+                highwayConfig.ForgetGames(); // each game remembers its settings; start from its own
                 highwayConfig.SetValue(HighwaySetting.Preset, HighwayPreset.Custom);
                 highwayConfig.SetValue(HighwaySetting.Preset, HighwayPreset.Chunithm);
+                // The preset shows Chunithm's numbers; these toasts are in osu!mania's speed and percent of the wall.
+                highwayConfig.SetValue(HighwaySetting.WallScale, WallScale.Percent);
+                highwayConfig.SetValue(HighwaySetting.SpeedScale, SpeedScale.Mania);
                 highwayConfig.SetValue(HighwaySetting.NoteStyle, HighwayNoteStyle.Highway);
                 highwayConfig.SetValue(HighwaySetting.CameraMode, camera);
                 highwayConfig.SetValue(HighwaySetting.Wall, wall);

@@ -72,8 +72,10 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Highway
                 customBeatmap = null;
                 skins.CurrentSkinInfo.SetDefault();
                 rulesetConfig.SetValue(ManiaRulesetSetting.TimingBasedNoteColouring, false);
+                highwayConfig.ForgetGames(); // each game remembers its settings; start from its own
                 highwayConfig.SetValue(HighwaySetting.Preset, HighwayPreset.Custom);
                 highwayConfig.SetValue(HighwaySetting.Preset, HighwayPreset.Chunithm);
+                highwayConfig.SetValue(HighwaySetting.Wall, 0f); // a game with a wall leaves it to the player
                 highwayConfig.SetValue(HighwaySetting.NoteStyle, HighwayNoteStyle.Highway);
                 highwayConfig.GetBindable<float>(HighwaySetting.FarFade).SetDefault();
                 highwayConfig.GetBindable<float>(HighwaySetting.HoldOpacity).SetDefault();

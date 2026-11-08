@@ -2,7 +2,6 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using System.Collections.Generic;
 using osu.Game.Beatmaps.ControlPoints;
 
 namespace osu.Game.Rulesets.ManiaOrtho.Highway
@@ -25,12 +24,8 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
         private readonly double[] swingLengths;
         private readonly double[] swingsBefore;
 
-        // Kiai sections, with sections closer than their fade merged into one; each grows over one swing from its start
-        // and settles over one swing after its end.
-        private readonly double[] starts;
-        private readonly double[] ends;
-        private readonly double[] fadeIns;
-        private readonly double[] fadeOuts;
+        // Kiai sections, each growing over one swing from its start and settling over one swing after its end.
+        private readonly KiaiSections sections;
 
         public KiaiSway(ControlPointInfo controlPoints)
         {
@@ -51,51 +46,14 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
                     swingsBefore[i] = swingsBefore[i - 1] + (timingTimes[i] - timingTimes[i - 1]) / swingLengths[i - 1];
             }
 
-            var sectionStarts = new List<double>();
-            var sectionEnds = new List<double>();
-            bool inKiai = false;
-
-            // Consecutive kiai effect points (a scroll speed change inside a kiai section) make one section.
-            foreach (var point in controlPoints.EffectPoints)
-            {
-                if (point.KiaiMode == inKiai)
-                    continue;
-
-                inKiai = point.KiaiMode;
-
-                if (!inKiai)
-                {
-                    sectionEnds.Add(point.Time);
-                    continue;
-                }
-
-                // A section starting before the last one has settled carries on from it.
-                if (sectionEnds.Count > 0 && point.Time - sectionEnds[^1] < swingAt(sectionEnds[^1]))
-                    sectionEnds.RemoveAt(sectionEnds.Count - 1);
-                else
-                    sectionStarts.Add(point.Time);
-            }
-
-            if (inKiai)
-                sectionEnds.Add(double.PositiveInfinity);
-
-            starts = sectionStarts.ToArray();
-            ends = sectionEnds.ToArray();
-            fadeIns = new double[starts.Length];
-            fadeOuts = new double[starts.Length];
-
-            for (int i = 0; i < starts.Length; i++)
-            {
-                fadeIns[i] = swingAt(starts[i]);
-                fadeOuts[i] = double.IsFinite(ends[i]) ? swingAt(ends[i]) : 1;
-            }
+            sections = new KiaiSections(controlPoints, swingAt);
         }
 
         /// <summary>
         /// How many kiai sections the beatmap has: consecutive kiai effect points, and sections closer together than their
         /// fade, count as one.
         /// </summary>
-        public int SectionCount => starts.Length;
+        public int SectionCount => sections.Count;
 
         /// <summary>
         /// One swing (one side to the other) for a beat of <paramref name="beatLength"/>: the beat, doubled until it is at
@@ -116,40 +74,18 @@ namespace osu.Game.Rulesets.ManiaOrtho.Highway
         /// </summary>
         public float At(double time)
         {
-            if (starts.Length == 0 || double.IsNaN(time))
-                return 0;
-
-            // The last section starting at or before this time.
-            int index = floorIndex(starts, time);
-
-            if (index < 0)
-                return 0;
-
-            double grown = (time - starts[index]) / fadeIns[index];
-            double settled = time < ends[index] ? 0 : (time - ends[index]) / fadeOuts[index];
-            double envelope = smoothStep(Math.Clamp(Math.Min(grown, 1 - settled), 0, 1));
+            double envelope = sections.At(time);
 
             if (envelope <= 0)
                 return 0;
 
             // At a side on each beat (each swing) and through the middle between them, counted on from the first timing point.
-            int timingIndex = Math.Max(0, floorIndex(timingTimes, time));
+            int timingIndex = Math.Max(0, KiaiSections.FloorIndex(timingTimes, time));
             double swings = swingsBefore[timingIndex] + (time - timingTimes[timingIndex]) / swingLengths[timingIndex];
 
             return (float)(envelope * Math.Cos(Math.PI * swings));
         }
 
-        private double swingAt(double time) => swingLengths[Math.Max(0, floorIndex(timingTimes, time))];
-
-        /// <summary>
-        /// The index of the last of <paramref name="times"/> (sorted) at or before <paramref name="time"/>; -1 if none.
-        /// </summary>
-        private static int floorIndex(double[] times, double time)
-        {
-            int index = Array.BinarySearch(times, time);
-            return index >= 0 ? index : ~index - 1;
-        }
-
-        private static double smoothStep(double x) => x * x * (3 - 2 * x);
+        private double swingAt(double time) => swingLengths[Math.Max(0, KiaiSections.FloorIndex(timingTimes, time))];
     }
 }

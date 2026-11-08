@@ -43,6 +43,8 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Playtest
 
         private readonly PlaytestOptions options = PlaytestOptions.FromEnvironment();
 
+        private HighwayPreset? playedPreset;
+
         private readonly List<string> captures = new List<string>();
         private readonly List<object> clockAtCapture = new List<object>();
         private readonly List<double> fpsSamples = new List<double>();
@@ -164,13 +166,21 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Playtest
 
                 if (config is ManiaOrthoRulesetConfigManager ortho)
                 {
-                    // Set the preset twice so its values are re-applied even if it is already selected.
-                    ortho.Highway.SetValue(HighwaySetting.Preset, HighwayPreset.Custom);
-                    ortho.Highway.SetValue(HighwaySetting.Preset, options.Preset);
-
-                    // Before the speed toggle below, so the default scale cannot change it. A scale given with --set sets it
+                    // Before the preset, which sets its game's width and numbers (a game without a wall keeps the default wall
+                    // scale), and before the speed toggle below, so the scale cannot change it. A scale given with --set sets it
                     // as that game would; --speed-lock still wins (applied again after the --set values).
                     ortho.Highway.GetBindable<WallScale>(HighwaySetting.WallScale).SetDefault();
+                    ortho.Highway.GetBindable<SpeedScale>(HighwaySetting.SpeedScale).SetDefault();
+                    ortho.Highway.GetBindable<HighwayWidthMode>(HighwaySetting.WidthMode).SetDefault();
+                    ortho.Highway.GetBindable<float>(HighwaySetting.LaneWidth).SetDefault();
+
+                    // A game with a wall leaves it to the player, so an earlier run's --wall would stay.
+                    ortho.Highway.SetValue(HighwaySetting.Wall, 0f);
+
+                    // Set the preset twice so its values are re-applied even if it is already selected.
+                    ortho.Highway.ForgetGames(); // each game remembers its settings; start from its own
+                    ortho.Highway.SetValue(HighwaySetting.Preset, HighwayPreset.Custom);
+                    ortho.Highway.SetValue(HighwaySetting.Preset, options.Preset);
 
                     if (options.Wall is float wall)
                         ortho.Highway.SetValue(HighwaySetting.Wall, wall);
@@ -193,11 +203,14 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Playtest
                     ortho.Highway.GetBindable<float>(HighwaySetting.TrackOpacity).SetDefault();
                     ortho.Highway.GetBindable<KeyBeamLength>(HighwaySetting.KeyBeam).SetDefault();
                     ortho.Highway.GetBindable<float>(HighwaySetting.KiaiSway).SetDefault();
+                    ortho.Highway.GetBindable<float>(HighwaySetting.KiaiLift).SetDefault();
 
                     options.ApplyHighwayValues(ortho.Highway);
 
                     if (options.SpeedLock)
                         ortho.Highway.SetValue(HighwaySetting.WallKeepsVisibleTime, false);
+
+                    playedPreset = ortho.Highway.Get<HighwayPreset>(HighwaySetting.Preset);
                 }
             });
 
@@ -420,7 +433,8 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Playtest
                 window = host.Window == null ? "headless" : $"{host.Window.ClientSize.Width}x{host.Window.ClientSize.Height}",
                 renderer = host.ResolvedRenderer.ToString(),
                 scrollSpeed = options.ScrollSpeed,
-                preset = options.Ruleset == ManiaOrthoRuleset.SHORT_NAME ? options.Preset.ToString() : null,
+                // The preset played, after the --set values: Custom when one of them changed its look.
+                preset = options.Ruleset == ManiaOrthoRuleset.SHORT_NAME ? playedPreset?.ToString() : null,
                 wall = options.Wall,
                 speedLock = options.Ruleset == ManiaOrthoRuleset.SHORT_NAME ? options.SpeedLock : (bool?)null,
                 // What the highway played with, after the preset, wall and --set values (out-of-range values are clamped).
@@ -428,9 +442,13 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Playtest
                     ? new
                     {
                         camera = used.CameraMode.ToString(),
-                        used.FarWidthRatio,
+                        used.LaneTilt,
+                        used.LaneLength,
+                        used.Approach,
+                        // Where the camera puts the lane's far end, and how wide it is there.
+                        farY = used.ToLayout().FarY,
+                        farWidthRatio = used.ToLayout().FarWidthRatio,
                         used.JudgementLineHeight,
-                        used.FarEdgeHeight,
                         used.TrackWidth,
                         used.Wall,
                         used.WallKeepsVisibleTime,
@@ -448,7 +466,11 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Playtest
                         used.TrackOpacity,
                         keyBeam = used.KeyBeam.ToString(),
                         used.KiaiSway,
+                        used.KiaiLift,
                         wallScale = used.WallScale.ToString(),
+                        speedScale = used.SpeedScale.ToString(),
+                        widthMode = used.WidthMode.ToString(),
+                        used.LaneWidth,
                         ported = (Player.DrawableRuleset as DrawableManiaOrthoRuleset)?.Highway?.Port != null,
                     }
                     : null,

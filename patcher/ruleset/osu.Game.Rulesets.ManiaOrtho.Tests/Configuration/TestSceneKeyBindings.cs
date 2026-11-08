@@ -3,6 +3,8 @@
 
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Bindables;
+using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Input.Bindings;
 using osu.Framework.Testing;
 using osu.Game.Beatmaps;
@@ -19,7 +21,8 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Configuration
 {
     /// <summary>
     /// maniaortho plays with the keys bound for osu!mania (Alpha 2026-11-04: changing keys matches the gameplay field), and
-    /// the maniaortho section of osu!'s key binding settings shows and changes the same keys (<see cref="KeyBindingMirror"/>).
+    /// the maniaortho section of osu!'s key binding settings shows and changes the same keys (<see cref="KeyBindingMirror"/>),
+    /// unless "Share osu!mania's keys" is off (Alpha 2026-11-07: an option), when it plays with its own.
     /// </summary>
     public partial class TestSceneKeyBindings : PlayerTestScene
     {
@@ -37,6 +40,9 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Configuration
         protected override Ruleset CreatePlayerRuleset() => ruleset;
 
         protected override IBeatmap CreateBeatmap(RulesetInfo rulesetInfo) => PlaytestBeatmaps.Load("synthetic-4k");
+
+        [SetUpSteps]
+        public void ShareKeys() => AddStep("share osu!mania's keys", () => shareManiaKeys.SetDefault());
 
         /// <summary>
         /// A key rebound for osu!mania presses the same column in both rulesets, and on the highway lights that lane. Keys
@@ -133,6 +139,44 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Configuration
         }
 
         /// <summary>
+        /// With sharing off, maniaortho plays with its own keys and leaves osu!mania's alone; turned on in play, the keys
+        /// switch to osu!mania's at once.
+        /// </summary>
+        [Test]
+        public void TestUnsharedKeysAreManiaOrthosOwn()
+        {
+            AddStep("osu!mania's 4K on Q W O P, maniaortho's on A S K L", () => Realm.Write(r =>
+            {
+                setKeys(r, ManiaRuleset.SHORT_NAME, InputKey.Q, InputKey.W, InputKey.O, InputKey.P);
+                setKeys(r, ManiaOrthoRuleset.SHORT_NAME, InputKey.A, InputKey.S, InputKey.K, InputKey.L);
+            }));
+            AddStep("stop sharing", () => shareManiaKeys.Value = false);
+            AddStep("play maniaortho", () =>
+            {
+                ruleset = new ManiaOrthoRuleset();
+                LoadPlayer();
+            });
+            AddUntilStep("player running", () => Player.IsLoaded && Player.Alpha == 1 && Player.GameplayClockContainer.IsRunning);
+
+            AddAssert("nothing merged", () => (keysOf(ManiaRuleset.SHORT_NAME), keysOf(ManiaOrthoRuleset.SHORT_NAME)),
+                () => Is.EqualTo(("1:Q 2:W 3:O 4:P", "1:A 2:S 3:K 4:L")));
+
+            AddStep("hold L", () => InputManager.PressKey(Key.L));
+            AddAssert("maniaortho's key presses the fourth column", () => keyBindingContainer.PressedActions, () => Is.EquivalentTo(new[] { ManiaAction.Key4 }));
+            AddUntilStep("its lane lights on the highway", () => highway.Track.BeamAlphas[3], () => Is.GreaterThan(0));
+            AddStep("release L", () => InputManager.ReleaseKey(Key.L));
+
+            AddStep("hold P", () => InputManager.PressKey(Key.P));
+            AddAssert("osu!mania's key presses nothing", () => keyBindingContainer.PressedActions, () => Is.Empty);
+            AddStep("release P", () => InputManager.ReleaseKey(Key.P));
+
+            AddStep("share again", () => shareManiaKeys.Value = true);
+            AddStep("hold P", () => InputManager.PressKey(Key.P));
+            AddAssert("osu!mania's key presses the fourth column", () => keyBindingContainer.PressedActions, () => Is.EquivalentTo(new[] { ManiaAction.Key4 }));
+            AddStep("release P", () => InputManager.ReleaseKey(Key.P));
+        }
+
+        /// <summary>
         /// A copy limited to some columns leaves the rest as they are, so a column changed on the other side meanwhile is not
         /// carried back.
         /// </summary>
@@ -192,6 +236,9 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Configuration
             });
             base.TearDownSteps();
         }
+
+        private Bindable<bool> shareManiaKeys
+            => ((ManiaOrthoRulesetConfigManager)RulesetConfigs.GetConfigFor(new ManiaOrthoRuleset()).AsNonNull()).Highway.GetBindable<bool>(HighwaySetting.ShareManiaKeys);
 
         private KeyBindingContainer<ManiaAction> keyBindingContainer => Player.DrawableRuleset.ChildrenOfType<ManiaInputManager>().First().KeyBindingContainer;
 

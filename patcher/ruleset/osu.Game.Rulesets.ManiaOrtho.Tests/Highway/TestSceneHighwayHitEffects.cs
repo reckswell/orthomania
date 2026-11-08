@@ -52,8 +52,10 @@ namespace osu.Game.Rulesets.ManiaOrtho.Tests.Highway
             AddStep("Chunithm preset, highway effects", () =>
             {
                 autoplay = true;
+                highwayConfig.ForgetGames(); // each game remembers its settings; start from its own
                 highwayConfig.SetValue(HighwaySetting.Preset, HighwayPreset.Custom);
                 highwayConfig.SetValue(HighwaySetting.Preset, HighwayPreset.Chunithm);
+                highwayConfig.SetValue(HighwaySetting.Wall, 0f); // a game with a wall leaves it to the player
                 highwayConfig.SetValue(HighwaySetting.HitEffects, HighwayHitEffectStyle.Highway);
             });
 
