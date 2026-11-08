@@ -200,6 +200,16 @@ namespace Orthomania.Patcher.Folders
                 }
             }
 
+            // orthomania's DLLs against the osu! files beside them, which are the ones lazer runs them with.
+            var ownDlls = folder.Record.OwnFiles.Where(o => o.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                                .Select(o => Path.Combine(folder.Directory, o.Name)).ToList();
+
+            if (!OsuCompatibility.Check(ownDlls, folder.Directory, out string? unfit))
+            {
+                problem = $"orthomania does not fit its osu! files: {unfit}";
+                return false;
+            }
+
             // Were lazer's own release to ship these, plain lazer would have them too; any other copy gives orthomania's osu! data of its own.
             foreach (string apart in new[] { FRAMEWORK_INI, STORAGE_INI })
             {

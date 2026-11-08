@@ -1,0 +1,78 @@
+name: Patcher release
+
+# Publishes orthomania.exe as a GitHub release tagged patcher-<version>, run by hand from main (Actions, "Patcher release", Run
+# workflow). A released orthomania.exe checks for a newer patcher release each time it starts: it downloads that release's
+# orthomania.exe, checks it against the SHA-256 GitHub lists for the file, puts it in place of itself and starts it. The release is
+# marked as the repository's latest, so the releases page offers this file to new players.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Patcher version (x.y.z), higher than the last patcher-<version> release"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: patcher-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release orthomania.exe ${{ inputs.version }}
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The version is new and higher than every patcher release
+        shell: bash
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "::error::version must be x.y.z, not '$VERSION'"; exit 1; fi
+          newest=$(git tag --list 'patcher-*' | sed 's/^patcher-//' | sort -V | tail -n 1)
+          if [ -n "$newest" ]; then
+            highest=$(printf '%s\n%s\n' "$newest" "$VERSION" | sort -V | tail -n 1)
+            if [ "$newest" = "$VERSION" ] || [ "$highest" != "$VERSION" ]; then
+              echo "::error::patcher-$newest is out; the new version must be higher"; exit 1
+            fi
+          fi
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - run: dotnet test patcher/Orthomania.Patcher.sln -c Release
+
+      # OrthomaniaRelease marks the build as a release, the only kind that replaces itself with a newer patcher.
+      - run: dotnet publish patcher/src/Orthomania.Patcher -c Release -r win-x64 -p:Version=${{ inputs.version }} -p:OrthomaniaRelease=true -o artifacts/release
+
+      - name: orthomania.exe is the only file, carries its version, and starts and draws its window
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem artifacts/release)
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'orthomania.exe') { throw "expected only orthomania.exe, found: $($files.Name -join ', ')" }
+          $version = $files[0].VersionInfo.ProductVersion
+          if (-not $version.StartsWith($env:VERSION)) { throw "orthomania.exe says it is $version, not $env:VERSION" }
+          $shot = Join-Path $env:RUNNER_TEMP 'orthomania-ready.png'
+          $game = Start-Process artifacts/release/orthomania.exe -ArgumentList '--demo', 'ready', '--screenshot', $shot -PassThru
+          if (-not $game.WaitForExit(180000)) { $game.Kill(); throw 'orthomania.exe did not close after its screenshot' }
+          if (-not (Test-Path $shot)) { throw "orthomania.exe exited ($($game.ExitCode)) without drawing its window" }
+          $hash = (Get-FileHash artifacts/release/orthomania.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  orthomania.exe" | Set-Content -NoNewline -Encoding ascii (Join-Path $env:RUNNER_TEMP 'orthomania.exe.sha256')
+          "orthomania.exe $version, {0:N1} MB, sha256 $hash" -f ($files[0].Length / 1MB)
+
+      - name: Publish patcher-${{ inputs.version }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "patcher-$VERSION" artifacts/release/orthomania.exe "$RUNNER_TEMP/orthomania.exe.sha256" \
+            --target "${{ github.sha }}" \
+            --latest \
+            --title "orthomania $VERSION" \
+            --notes "Download orthomania.exe and start it: it finds osu!(lazer), keeps it and orthomania up to date, and starts osu! with orthomania. Nothing to install. An orthomania.exe from an earlier release updates itself to this one the next time it starts."

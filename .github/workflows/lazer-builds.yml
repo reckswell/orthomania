@@ -99,8 +99,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.package.outputs.tag }}
         run: |
+          # Not marked latest: the releases page keeps offering the newest orthomania.exe (patcher-<version>) to new players.
           gh release create "$TAG" "$RELEASE_FILES"/* \
             --target "${{ github.sha }}" \
+            --latest=false \
             --title "orthomania ${BUILD} for osu! ${{ matrix.tag }}" \
             --notes "Built and tested against osu!(lazer) ${{ matrix.tag }}'s own files. orthomania.exe downloads it on its next launch with that release of lazer."
 
@@ -113,6 +115,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: lazer-${{ matrix.lazer }}-${{ env.BUILD }}
         run: |
-          gh release create "$TAG" --draft --target "${{ github.sha }}" \
+          gh release create "$TAG" --draft --latest=false --target "${{ github.sha }}" \
             --title "orthomania ${BUILD} for osu! ${{ matrix.tag }}: failed" \
             --notes "Building or testing against osu!(lazer) ${{ matrix.tag }} failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Not offered to players. It is built again on the next change to the ruleset on main, or by hand."

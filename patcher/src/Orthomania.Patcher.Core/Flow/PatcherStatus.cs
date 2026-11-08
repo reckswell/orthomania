@@ -13,6 +13,17 @@ namespace Orthomania.Patcher.Flow
         WaitingForGame,
 
         UpdatingLazer,
+
+        /// <summary>
+        /// A newer orthomania.exe is being downloaded to replace this one.
+        /// </summary>
+        UpdatingPatcher,
+
+        /// <summary>
+        /// The newer orthomania.exe is in place: the window starts it and closes.
+        /// </summary>
+        RestartingPatcher,
+
         GettingOrthomania,
         Preparing,
 

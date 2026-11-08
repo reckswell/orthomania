@@ -27,15 +27,39 @@ namespace Orthomania.Patcher.Tests.Releases
             public readonly Dictionary<string, byte[]> Downloads = new Dictionary<string, byte[]>();
             public int ReleaseListRequests;
 
+            /// <summary>
+            /// Every tag, including those of releases older than the list and of drafts.
+            /// </summary>
+            public readonly List<string> Tags = new List<string>();
+
+            /// <summary>
+            /// Releases by tag, as GitHub shows one release (never a draft).
+            /// </summary>
+            public readonly Dictionary<string, string> ByTag = new Dictionary<string, string>();
+
+            private const string api = "https://api.github.com/repos/Reckswell/orthomania/";
+
+            private static HttpResponseMessage json(string body) => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+
             protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             {
                 string url = request.RequestUri!.ToString();
 
-                if (url.StartsWith("https://api.github.com/repos/Reckswell/orthomania/releases", StringComparison.Ordinal))
+                if (url.StartsWith(api + "releases?", StringComparison.Ordinal))
                 {
                     ReleaseListRequests++;
-                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(ReleasesJson, Encoding.UTF8, "application/json") });
+                    return Task.FromResult(json(ReleasesJson));
                 }
+
+                if (url.StartsWith(api + "git/matching-refs/tags/", StringComparison.Ordinal))
+                {
+                    string prefix = url[(api + "git/matching-refs/tags/").Length..];
+                    return Task.FromResult(json("[" + string.Join(",", Tags.Where(t => t.StartsWith(prefix, StringComparison.Ordinal))
+                                                                            .Select(t => $"{{\"ref\":\"refs/tags/{t}\"}}")) + "]"));
+                }
+
+                if (url.StartsWith(api + "releases/tags/", StringComparison.Ordinal) && ByTag.TryGetValue(url[(api + "releases/tags/").Length..], out string? one))
+                    return Task.FromResult(json(one));
 
                 if (Downloads.TryGetValue(url, out byte[]? bytes))
                     return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
@@ -159,7 +183,7 @@ namespace Orthomania.Patcher.Tests.Releases
             string tag = "lazer-2026.1026.0-0.1.0";
 
             publish(github, Fakes.Build(temp.Combine("published")), tag);
-            github.Downloads[url(tag, "0Harmony.dll")] = new byte[1024];
+            github.Downloads[url(tag, "0Harmony.dll")] = new byte[1 << 20];
             github.ReleasesJson = "[" + release(tag, assets: new[] { "orthomania.json", "osu.Game.Rulesets.ManiaOrtho.dll", "0Harmony.dll" }) + "]";
 
             var found = (await feed.FindBuildAsync(october, CancellationToken.None))!;
@@ -181,6 +205,90 @@ namespace Orthomania.Patcher.Tests.Releases
 
             Assert.That(async () => await feed.DownloadAsync(found, temp.Combine("staging"), _ => { }, CancellationToken.None),
                 Throws.TypeOf<ReleaseFeedException>().With.Message.Contains("0Harmony.dll"));
+        }
+
+        [Test]
+        public async Task TestFindsABuildOlderThanTheList()
+        {
+            var (github, feed) = create();
+
+            github.ReleasesJson = "[" + release("lazer-2026.1105.0-0.3.0", assets: new[] { "orthomania.json" }) + "]";
+            github.Tags.AddRange(new[] { "lazer-2026.1026.0-0.1.2", "lazer-2026.1026.0-0.1.10", "lazer-2026.1026.0-0.1.9", "lazer-2026.1105.0-0.3.0" });
+
+            // 0.1.10 failed and is only a draft, which GitHub does not show.
+            github.ByTag["lazer-2026.1026.0-0.1.9"] = release("lazer-2026.1026.0-0.1.9", assets: new[] { "orthomania.json", "osu.Game.Rulesets.ManiaOrtho.dll" });
+            github.ByTag["lazer-2026.1026.0-0.1.2"] = release("lazer-2026.1026.0-0.1.2", assets: new[] { "orthomania.json", "osu.Game.Rulesets.ManiaOrtho.dll" });
+
+            var found = await feed.FindBuildAsync(october, CancellationToken.None);
+
+            Assert.That(found!.Build, Is.EqualTo("0.1.9"));
+            Assert.That(await feed.FindBuildAsync(LazerVersion.Parse("2026.1200.0"), CancellationToken.None), Is.Null);
+        }
+
+        private static string patcherRelease(string tag, string? digest, bool prerelease = false)
+            => $"{{\"tag_name\":\"{tag}\",\"draft\":false,\"prerelease\":{prerelease.ToString().ToLowerInvariant()},"
+               + $"\"html_url\":\"https://github.com/Reckswell/orthomania/releases/tag/{tag}\",\"assets\":[{{\"name\":\"orthomania.exe\",\"size\":10,"
+               + $"\"browser_download_url\":\"{url(tag, "orthomania.exe")}\"" + (digest != null ? $",\"digest\":\"{digest}\"" : "") + "}]}";
+
+        private static readonly string sha = new string('a', 64);
+
+        [Test]
+        public async Task TestFindsThePatcherWithItsHash()
+        {
+            var (github, feed) = create();
+
+            github.ReleasesJson = "[" + string.Join(",", patcherRelease("patcher-0.3.0", "sha256:" + sha, prerelease: true), patcherRelease("patcher-0.2.0", "sha256:" + sha.ToUpperInvariant()),
+                patcherRelease("patcher-0.1.0", "sha256:" + sha)) + "]";
+
+            var patcher = (await feed.FindPatcherAsync(CancellationToken.None))!;
+
+            Assert.That(patcher.Version, Is.EqualTo(new Version(0, 2, 0)), "not the prerelease");
+            Assert.That(patcher.Download, Is.EqualTo(new PatcherDownload(new Uri(url("patcher-0.2.0", "orthomania.exe")), 10, sha)));
+        }
+
+        [TestCase(null)]
+        [TestCase("md5:0123")]
+        [TestCase("sha256:nothex")]
+        public async Task TestAPatcherWithoutAHashHasNoDownload(string? digest)
+        {
+            var (github, feed) = create();
+            github.ReleasesJson = "[" + patcherRelease("patcher-0.2.0", digest) + "]";
+
+            var patcher = (await feed.FindPatcherAsync(CancellationToken.None))!;
+
+            Assert.That(patcher.Version, Is.EqualTo(new Version(0, 2, 0)));
+            Assert.That(patcher.Download, Is.Null);
+        }
+
+        [Test]
+        public async Task TestFindsAPatcherOlderThanTheList()
+        {
+            var (github, feed) = create();
+
+            github.ReleasesJson = "[" + release("lazer-2026.1026.0-0.1.0", assets: new[] { "orthomania.json" }) + "]";
+            github.Tags.AddRange(new[] { "patcher-0.1.0", "patcher-0.10.0", "patcher-0.9.0" });
+            github.ByTag["patcher-0.10.0"] = patcherRelease("patcher-0.10.0", "sha256:" + sha);
+            github.ByTag["patcher-0.9.0"] = patcherRelease("patcher-0.9.0", "sha256:" + sha);
+
+            var patcher = await feed.FindPatcherAsync(CancellationToken.None);
+
+            Assert.That(patcher!.Version, Is.EqualTo(new Version(0, 10, 0)), "0.10.0 after 0.9.0");
+        }
+
+        [Test]
+        public async Task TestDownloadsThePatcherNoLargerThanPublished()
+        {
+            using var temp = new TempFolder();
+            var (github, feed) = create();
+            var uri = new Uri(url("patcher-0.2.0", "orthomania.exe"));
+            github.Downloads[uri.ToString()] = Encoding.ASCII.GetBytes("MZ patcher");
+
+            string path = temp.Combine("app", "orthomania.exe.download");
+            await feed.DownloadPatcherAsync(new PatcherDownload(uri, 10, sha), path, _ => { }, CancellationToken.None);
+            Assert.That(File.ReadAllText(path), Is.EqualTo("MZ patcher"));
+
+            Assert.That(async () => await feed.DownloadPatcherAsync(new PatcherDownload(uri, 5, sha), path, _ => { }, CancellationToken.None),
+                Throws.TypeOf<ReleaseFeedException>());
         }
 
         [Test]

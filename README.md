@@ -11,11 +11,15 @@ Starting osu! starts plain lazer. Starting `orthomania.exe` checks for updates, 
 On every launch the patcher:
 
 1. finds official lazer (`%LOCALAPPDATA%\osulazer`) and checks that orthomania's folders are apart from it and that orthomania's data folder holds none of osu!'s data;
-2. waits until no lazer is running ("close osu! to continue");
-3. updates lazer if a newer release is out, with lazer's own updater (Velopack, the same feed and `Update.exe` lazer uses);
-4. gets the orthomania build made for exactly the installed lazer release, checking every file against its hash;
-5. prepares the folder lazer runs from for orthomania, and waits on **Ready**;
-6. on **Launch**, starts lazer from that folder.
+2. if it is a released `orthomania.exe` and a newer patcher is out, downloads it, checks it against the SHA-256 GitHub lists for the file, puts it in place of itself and starts it, which carries on from here (see [Releases](#releases));
+3. waits until no lazer is running ("close osu! to continue");
+4. updates lazer if a newer release is out, with lazer's own updater (Velopack, the same feed and `Update.exe` lazer uses);
+5. downloads the newest orthomania build made for exactly the installed lazer release when it is newer than the one it has, checking every file against its hash;
+6. checks the build's DLLs against the installed lazer's files: every assembly they need must be in lazer's folder (or come with the build), osu!'s and its framework's at exactly the version the build was compiled against, any other at that version or newer. The newest build that passes is used; a newer one that does not is passed over, and the patcher says so;
+7. prepares the folder lazer runs from for orthomania, and waits on **Ready**;
+8. on **Launch**, checks for updates again if the window has been open 10 minutes or more, checks the folder again (lazer's files, orthomania's files against their hashes, and the DLL check against the lazer files beside them), then starts lazer from that folder.
+
+Without a connection it starts the newest build it already has that passes the checks.
 
 ### Finding osu!
 
@@ -75,7 +79,15 @@ A change to the ruleset on main, or a run by hand (**Run workflow**, optionally 
 
 A build is only ever put beside the lazer release it names, and it can add files to lazer's but never replace one. Format 2 promises what [What orthomania may touch](#what-orthomania-may-touch) asks of the game side.
 
-The patcher itself is released as `patcher-<version>`, with `orthomania.exe` as its one file: published for `win-x64`, the patcher is a single self-contained exe with the .NET runtime, osu-framework and its native libraries inside, so players need nothing installed and nothing beside it. On first start it unpacks the native libraries to `%TEMP%\.net\orthomania`. The version it reports is `<Version>` in `Directory.Build.props`, and the patcher tells players when a release with a higher one is out.
+### The patcher
+
+The patcher itself is released as `patcher-<version>`, with `orthomania.exe` as its one file: published for `win-x64`, the patcher is a single self-contained exe with the .NET runtime, osu-framework and its native libraries inside, so players need nothing installed and nothing beside it. On first start it unpacks the native libraries to `%TEMP%\.net\orthomania`.
+
+To release it, run [`patcher-release.yml`](.github/workflows/patcher-release.yml) from main (**Actions**, **Patcher release**, **Run workflow**) with a version higher than the last `patcher-<version>`. It runs the patcher's tests, publishes `orthomania.exe` with that version, checks it is the only file and that it starts, and publishes the release with `orthomania.exe` and its SHA-256, marked as the repository's latest so the releases page offers it (build releases are never marked latest).
+
+A released `orthomania.exe` updates itself: on each start it looks for a higher `patcher-<version>`, downloads its `orthomania.exe` beside itself, checks it against the SHA-256 GitHub lists for that file, renames itself to `orthomania.exe.old` (Windows lets a running program be renamed, not deleted), puts the new one in its place, and starts it. The new one waits for the old one to close, removes `orthomania.exe.old`, and carries on. If any step fails, the old one stays in place and says a newer patcher is out. `"updatePatcher": false` in the patcher's `settings.json` turns this off. An `orthomania.exe` built from a clone (`launch.bat`) never replaces itself; it only says a newer one is out.
+
+Releases are listed newest first, a hundred at a time. A build or patcher release older than that (for an osu! release that has not changed in a while) is found by its tag.
 
 ## Launching from a clone
 
@@ -83,7 +95,8 @@ Double-click `launch.bat` at the top of the clone. It builds first on every run,
 the patcher as one file, `artifacts\launch\orthomania.exe`, and the score server in `artifacts\launch\server`, where the
 patcher's dev option looks for it (see [below](#starting-the-score-server-with-the-game-development-only)). The first time
 takes a minute or two; later ones only rebuild what changed, a few seconds when nothing did. Then it opens `orthomania.exe`,
-which does everything above. That `orthomania.exe` is the file to release; the source stays in the repository. It needs the
+which does everything above. To release it, use the [patcher release workflow](#the-patcher) rather than this file: a
+released `orthomania.exe` carries its version and updates itself, one built here does neither. It needs the
 .NET 10 SDK, and says so if it is missing. If orthomania is already open, it leaves it open.
 
 ## Building

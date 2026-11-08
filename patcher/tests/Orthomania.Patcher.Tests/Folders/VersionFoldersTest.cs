@@ -33,7 +33,23 @@ namespace Orthomania.Patcher.Tests.Folders
         private RulesetBuild addBuild(string lazer = "2026.1026.0", string build = "0.1.0", Dictionary<string, string>? files = null)
             => builds.Add(Fakes.Build(temp.Combine("staging-" + build + "-" + lazer), lazer, build, files));
 
-        private static string read(string path) => File.ReadAllText(path);
+        private static string read(string path) => Fakes.Read(path);
+
+        [Test]
+        public void TestVerifyChecksOrthomaniasDllsFitTheOsuFilesBesideThem()
+        {
+            Fakes.Assembly(Path.Combine(install.Current, "osu.Game.dll"), "osu.Game", "game", new System.Version(2026, 1026, 0, 0));
+
+            var fits = builds.Add(Fakes.Build(temp.Combine("staging-fits"), references: ("osu.Game", new System.Version(2026, 1026, 0, 0))));
+            var folder = folders.Create(install, fits, game);
+            Assert.That(VersionFolders.Verify(folder, out string? problem), Is.True, problem);
+
+            var other = builds.Add(Fakes.Build(temp.Combine("staging-other"), build: "0.1.1", references: ("osu.Game", new System.Version(2026, 1105, 0, 0))));
+            folder = folders.Refresh(folder, other, game);
+
+            Assert.That(VersionFolders.Verify(folder, out problem), Is.False);
+            Assert.That(problem, Does.StartWith("orthomania does not fit its osu! files: osu.Game.Rulesets.ManiaOrtho.dll was built for osu.Game 2026.1105.0.0"));
+        }
 
         [Test]
         public void TestCreatesAFolderOfLinksAndOrthomania()

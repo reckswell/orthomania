@@ -36,6 +36,11 @@ namespace Orthomania.Patcher.Settings
         public bool UpdateLazer { get; set; } = true;
 
         /// <summary>
+        /// Whether a released orthomania.exe replaces itself with a newer published patcher when it starts. Off: it only says one is out.
+        /// </summary>
+        public bool UpdatePatcher { get; set; } = true;
+
+        /// <summary>
         /// Development only: start the score server with the game. Null: never.
         /// </summary>
         public DevServerSettings? DevServer { get; set; }

@@ -22,6 +22,13 @@ namespace Orthomania.Patcher
         /// </summary>
         public string? LazerResources { get; private set; }
 
+        public const string AFTER = "--after";
+
+        /// <summary>
+        /// Wait for this process (the patcher this one replaced) to close before starting (<c>--after pid</c>).
+        /// </summary>
+        public int? After { get; private set; }
+
         public static PatcherOptions Parse(string[] args)
         {
             var options = new PatcherOptions();
@@ -42,6 +49,12 @@ namespace Orthomania.Patcher
 
                     case "--lazer-resources":
                         options.LazerResources = value();
+                        break;
+
+                    case AFTER:
+                        options.After = int.TryParse(value(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int pid)
+                            ? pid
+                            : null;
                         break;
                 }
             }
